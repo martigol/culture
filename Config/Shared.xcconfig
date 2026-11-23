@@ -1,0 +1,17 @@
+// Shared build settings for the Culture app.
+//
+// SECURITY: Never commit real secrets here. Put API keys / base URLs that differ
+// per developer in `Config/Secrets.xcconfig` (git-ignored) and they will be
+// picked up by the optional include below. Read them at runtime through
+// `AppConfig` (Core/Security/AppConfig.swift), never hard-code them in Swift.
+
+PRODUCT_BUNDLE_IDENTIFIER = com.culture.heritage
+DEVELOPMENT_TEAM =
+
+// Placeholder – override in Secrets.xcconfig. Note `$()` escapes the `//`.
+API_BASE_URL = https:/$()/api.example.com
+
+#include? "Secrets.xcconfig"
+
+// Partial Info.plist (custom keys, fonts, ATS). Merged with the generated one.
+INFOPLIST_FILE = Config/Info.plist
