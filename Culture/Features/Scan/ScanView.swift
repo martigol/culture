@@ -1,13 +1,17 @@
 import SwiftUI
+import UIKit
 
-/// Full-screen camera experience. Currently a simulated viewfinder;
-/// TODO(scan-team): replace `ViewfinderBackground` with an AVCaptureSession preview.
+/// Full-screen camera experience: live feed with on-device object detection,
+/// then a still is identified and matched to a story.
+/// Falls back to a simulated viewfinder where there's no camera (Simulator, previews).
 struct ScanView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.services) private var services
+    @Environment(\.openURL) private var openURL
     @Environment(Router.self) private var router
     @Environment(LibraryStore.self) private var library
     @State private var model = ScanViewModel()
+    @State private var camera = CameraController()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,6 +19,9 @@ struct ScanView: View {
             Spacer(minLength: Spacing.lg)
             ViewfinderFrame(isScanning: model.phase == .recognizing)
                 .frame(width: 264, height: 320)
+                // Step back while live boxes are showing, so the two don't compete.
+                .opacity(camera.detections.isEmpty || model.phase == .recognizing ? 1 : 0.35)
+                .animation(Motion.smooth, value: camera.detections.isEmpty)
             Text(instruction)
                 .textStyle(.lede)
                 .foregroundStyle(Palette.ink)
@@ -23,14 +30,23 @@ struct ScanView: View {
                 .padding(.top, Spacing.xl)
                 .contentTransition(.opacity)
                 .animation(Motion.smooth, value: model.phase)
+            if camera.status == .unauthorized {
+                Button("Open Settings", action: openSettings)
+                    .buttonStyle(.secondary)
+                    .frame(maxWidth: 220)
+                    .padding(.top, Spacing.md)
+            }
             Spacer(minLength: Spacing.lg)
             controls
         }
         .padding(.horizontal, Spacing.screen)
         .padding(.bottom, Spacing.lg)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background { ViewfinderBackground() }
+        .background { CameraBackground(camera: camera) }
         .preferredColorScheme(.dark)
+        .task { await camera.start() }
+        .onDisappear { camera.stop() }
+        .onChange(of: model.isFlashOn) { _, isOn in camera.setTorch(isOn) }
         #if DEBUG
         .onAppear {
             if let id = UserDefaults.standard.string(forKey: "debugScanResult"), let story = MockData.story(id) {
@@ -47,10 +63,17 @@ struct ScanView: View {
 
     private var instruction: String {
         switch model.phase {
-        case .aiming: "Frame a statue, temple or relic."
-        case .recognizing: "Reading the stone…"
-        case .recognized: "Found."
-        case .failed: "We couldn't read that. Try again in better light."
+        case .aiming:
+            if camera.status == .unauthorized { return "Camera access is off. Allow it in Settings to scan." }
+            if let object = camera.detections.first { return "\(object.displayLabel) in view. Tap to identify." }
+            return "Frame a statue, temple or relic."
+        case .recognizing:
+            return "Reading the stone…"
+        case .recognized:
+            return "Found."
+        case .failed:
+            if let hint = model.failureHint { return "No story matches this yet. \(hint)." }
+            return "We couldn't read that. Try again in better light."
         }
     }
 
@@ -91,7 +114,11 @@ struct ScanView: View {
         .padding(.horizontal, Spacing.xs)
     }
 
-    private func capture() { Task { await model.capture(using: services.scanner) } }
+    private func capture() { Task { await model.capture(using: services.scanner, camera: camera) } }
+
+    private func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+    }
 
     private func sideButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -121,7 +148,28 @@ struct ScanView: View {
     }
 }
 
-/// Simulated camera feed (an engraved artifact) until the AVCapture preview lands.
+/// Live camera + detection boxes when available, otherwise the simulated feed.
+private struct CameraBackground: View {
+    let camera: CameraController
+
+    var body: some View {
+        if camera.isRunning {
+            ZStack {
+                CameraPreview(session: camera.session)
+                DetectionOverlay(detections: camera.detections, frameSize: camera.frameSize)
+                RadialGradient(colors: [.clear, .black.opacity(0.6)], center: .center, startRadius: 160, endRadius: 560)
+                    .allowsHitTesting(false)
+            }
+            .background(Color.black)
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
+        } else {
+            ViewfinderBackground()
+        }
+    }
+}
+
+/// Simulated camera feed (an engraved artifact) for the Simulator and previews.
 private struct ViewfinderBackground: View {
     var body: some View {
         ZStack {
@@ -185,6 +233,5 @@ private struct CornerBrackets: Shape {
 
 #Preview {
     ScanView()
-        .environment(Router())
-        .environment(LibraryStore())
+        .previewEnvironment()
 }

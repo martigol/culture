@@ -124,8 +124,6 @@ struct HomeView: View {
 }
 
 #Preview {
-    NavigationStack { HomeView() }
-        .environment(Router())
-        .environment(LibraryStore())
-        .preferredColorScheme(.dark)
+    NavigationStack { HomeView().appDestinations() }
+        .previewEnvironment()
 }

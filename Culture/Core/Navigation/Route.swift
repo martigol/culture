@@ -33,12 +33,13 @@ enum Route: Hashable {
 }
 
 enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
-    case saved, offline, history, collections
+    case saved, highlights, offline, history, collections
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .saved: "Saved Stories"
+        case .highlights: "Highlights & Notes"
         case .offline: "Offline Stories"
         case .history: "Scan History"
         case .collections: "My Collections"
@@ -48,6 +49,7 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .saved: "bookmark"
+        case .highlights: "highlighter"
         case .offline: "arrow.down.circle"
         case .history: "clock.arrow.circlepath"
         case .collections: "square.stack"

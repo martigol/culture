@@ -68,7 +68,5 @@ private struct AppDestinations: ViewModifier {
 
 #Preview {
     RootView()
-        .environment(Router())
-        .environment(LibraryStore())
-        .preferredColorScheme(.dark)
+        .previewEnvironment()
 }
