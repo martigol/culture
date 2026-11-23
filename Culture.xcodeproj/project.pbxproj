@@ -9,6 +9,7 @@
 /* Begin PBXFileReference section */
 		A10000000000000000000001 /* Culture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Culture.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000020 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
+		BC8E637E30B4910200D1FBAD /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -51,6 +52,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000020 /* Shared.xcconfig */,
+				BC8E637E30B4910200D1FBAD /* Secrets.xcconfig */,
 			);
 			path = Config;
 			sourceTree = "<group>";
