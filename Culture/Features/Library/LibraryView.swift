@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LibraryView: View {
     @Environment(LibraryStore.self) private var library
+    @Environment(HighlightStore.self) private var highlights
 
     var body: some View {
         ScrollView {
@@ -64,6 +65,7 @@ struct LibraryView: View {
     private func count(for section: LibrarySection) -> String {
         let n: Int = switch section {
         case .saved: library.savedIDs.count
+        case .highlights: highlights.highlights.count
         case .offline: library.offlineIDs.count
         case .history: library.scanHistory.count
         case .collections: library.collections.count
@@ -76,12 +78,14 @@ struct LibraryView: View {
 struct LibraryListView: View {
     let section: LibrarySection
     @Environment(LibraryStore.self) private var library
+    @Environment(HighlightStore.self) private var highlights
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 switch section {
                 case .saved: storyRows(library.savedIDs)
+                case .highlights: HighlightsLibraryList()
                 case .offline: storyRows(library.offlineIDs)
                 case .history:
                     ForEach(library.scanHistory) { record in
@@ -130,12 +134,19 @@ struct LibraryListView: View {
         }
         .screenBackground()
         .navigationTitle(section.title)
-        .overlay { if isEmpty { EmptyStateView(symbol: section.symbol, title: "Nothing here yet", message: "Stories you add will appear here.") } }
+        .overlay { if isEmpty { EmptyStateView(symbol: section.symbol, title: "Nothing here yet", message: emptyMessage) } }
+    }
+
+    private var emptyMessage: String {
+        section == .highlights
+            ? "Select a passage in any story to highlight it or add a note."
+            : "Stories you add will appear here."
     }
 
     private var isEmpty: Bool {
         switch section {
         case .saved: library.savedIDs.isEmpty
+        case .highlights: highlights.highlights.isEmpty
         case .offline: library.offlineIDs.isEmpty
         case .history: library.scanHistory.isEmpty
         case .collections: library.collections.isEmpty
@@ -186,4 +197,22 @@ struct RowChrome: ViewModifier {
     }
 }
 
-#Preview { NavigationStack { LibraryView() }.environment(LibraryStore()).preferredColorScheme(.dark) }
+#Preview("Library") {
+    NavigationStack { LibraryView().appDestinations() }
+        .previewEnvironment()
+}
+
+#Preview("Highlights & Notes") {
+    NavigationStack { LibraryListView(section: .highlights).appDestinations() }
+        .previewEnvironment()
+}
+
+#Preview("Saved") {
+    NavigationStack { LibraryListView(section: .saved).appDestinations() }
+        .previewEnvironment()
+}
+
+#Preview("Collection") {
+    NavigationStack { CollectionView(collectionID: "olympians").appDestinations() }
+        .previewEnvironment()
+}

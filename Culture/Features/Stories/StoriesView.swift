@@ -100,4 +100,7 @@ struct StoriesView: View {
     }
 }
 
-#Preview { NavigationStack { StoriesView() }.environment(LibraryStore()).environment(Router()).preferredColorScheme(.dark) }
+#Preview {
+    NavigationStack { StoriesView().appDestinations() }
+        .previewEnvironment()
+}

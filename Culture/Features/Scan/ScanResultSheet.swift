@@ -59,3 +59,12 @@ struct ScanResultSheet: View {
         .presentationBackground(Palette.surface)
     }
 }
+
+#Preview {
+    Color.black
+        .ignoresSafeArea()
+        .sheet(isPresented: .constant(true)) {
+            ScanResultSheet(story: MockData.story("agamemnon")!, onOpen: {}, onRescan: {})
+        }
+        .previewEnvironment()
+}

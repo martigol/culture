@@ -5,10 +5,18 @@ struct StoryDetailView: View {
 
     @Environment(\.services) private var services
     @Environment(LibraryStore.self) private var library
+    @Environment(HighlightStore.self) private var highlightStore
     @State private var story: Story?
     @State private var related: [Story] = []
     @State private var player = AudioPlayer()
     @State private var expanded = false
+
+    // Highlighting
+    @State private var selection: NSRange?
+    @State private var activeHighlightID: Highlight.ID?
+    @State private var noteEditing: NoteEditing?
+
+    private struct NoteEditing: Identifiable { let id: Highlight.ID }
 
     private let heroHeight: CGFloat = 440
 
@@ -20,21 +28,40 @@ struct StoryDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar { if let story { toolbar(story) } }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let story { actionBar(story) }
+        }
+        .animation(Motion.snappy, value: selection)
+        .animation(Motion.snappy, value: activeHighlightID)
+        .sheet(item: $noteEditing) { editing in noteSheet(editing) }
+        .sensoryFeedback(.impact(weight: .light), trigger: highlightStore.highlights.count)
+        .onChange(of: selection) { if selection != nil { activeHighlightID = nil } }
         .task(id: storyID) { await load() }
         .onDisappear { player.pause() }
     }
 
     private func content(_ story: Story) -> some View {
-        ScrollView {
+        let marks = highlightStore.highlights(for: story.id)
+
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 hero(story)
 
                 VStack(alignment: .leading, spacing: Spacing.xl) {
                     header(story)
                     AudioPlayerCard(player: player)
-                    article(story)
+                    article(story, highlights: marks)
                 }
                 .padding(.horizontal, Spacing.screen)
+
+                if !marks.isEmpty {
+                    StoryHighlightsSection(highlights: marks) { highlight in
+                        withAnimation(Motion.smooth) { expanded = true }
+                        selection = nil
+                        activeHighlightID = highlight.id
+                    }
+                    .padding(.top, Spacing.section)
+                }
 
                 if !related.isEmpty {
                     VStack(alignment: .leading, spacing: Spacing.md) {
@@ -103,21 +130,102 @@ struct StoryDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func article(_ story: Story) -> some View {
+    private func article(_ story: Story, highlights: [Highlight]) -> some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
             Text(story.summary)
                 .textStyle(.lede)
                 .foregroundStyle(Palette.ink)
-            Text(story.body)
-                .textStyle(.body)
-                .foregroundStyle(Palette.inkSecondary)
-                .lineLimit(expanded ? nil : 6)
+            HighlightableText(
+                text: story.body,
+                highlights: highlights,
+                selection: $selection,
+                lineLimit: expanded ? nil : 6,
+                onTapHighlight: { highlight in
+                    selection = nil
+                    activeHighlightID = highlight.id
+                },
+                onMenuAction: { action, range in
+                    let created = addHighlight(range, color: highlightStore.lastColor, in: story)
+                    if action == .note, let created { noteEditing = NoteEditing(id: created.id) }
+                }
+            )
             Button(expanded ? "Show less" : "Continue reading") {
                 withAnimation(Motion.smooth) { expanded.toggle() }
             }
             .buttonStyle(.secondary)
         }
     }
+
+    // MARK: Highlights
+
+    /// Bottom panel: for a fresh selection, or for a tapped highlight.
+    @ViewBuilder
+    private func actionBar(_ story: Story) -> some View {
+        if let id = activeHighlightID, let highlight = highlightStore.highlight(id: id) {
+            HighlightActionBar(
+                quote: highlight.text,
+                shareText: shareText(highlight.text, story),
+                activeColor: highlight.color,
+                hasNote: highlight.hasNote,
+                onColor: { highlightStore.setColor($0, for: highlight.id) },
+                onNote: { noteEditing = NoteEditing(id: highlight.id) },
+                onRemove: {
+                    highlightStore.remove(highlight.id)
+                    activeHighlightID = nil
+                },
+                onClose: { activeHighlightID = nil }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        } else if let range = selection, let quote = substring(of: story.body, range) {
+            HighlightActionBar(
+                quote: quote,
+                shareText: shareText(quote, story),
+                onColor: { addHighlight(range, color: $0, in: story) },
+                onNote: {
+                    if let created = addHighlight(range, color: highlightStore.lastColor, in: story) {
+                        noteEditing = NoteEditing(id: created.id)
+                    }
+                },
+                onClose: { selection = nil }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    /// Creates the highlight and keeps the panel open on it (to add a note or recolour).
+    @discardableResult
+    private func addHighlight(_ range: NSRange, color: HighlightColor, in story: Story) -> Highlight? {
+        let created = highlightStore.add(range, in: story.body, storyID: story.id, color: color)
+        selection = nil
+        activeHighlightID = created?.id
+        return created
+    }
+
+    @ViewBuilder
+    private func noteSheet(_ editing: NoteEditing) -> some View {
+        if let highlight = highlightStore.highlight(id: editing.id) {
+            NoteEditorSheet(
+                quote: highlight.text,
+                color: highlight.color,
+                storyTitle: story?.title ?? "",
+                note: highlight.note ?? "",
+                onSave: { highlightStore.setNote($0, for: highlight.id) },
+                onDelete: highlight.hasNote ? { highlightStore.setNote(nil, for: highlight.id) } : nil
+            )
+        }
+    }
+
+    private func shareText(_ quote: String, _ story: Story) -> String {
+        "“\(quote)”\n— \(story.title)"
+    }
+
+    private func substring(of text: String, _ range: NSRange) -> String? {
+        let ns = text as NSString
+        guard range.location != NSNotFound, NSMaxRange(range) <= ns.length else { return nil }
+        return ns.substring(with: range)
+    }
+
+    // MARK: Toolbar
 
     @ToolbarContentBuilder
     private func toolbar(_ story: Story) -> some ToolbarContent {
@@ -146,15 +254,23 @@ struct StoryDetailView: View {
     }
 
     private func load() async {
-        guard let s = try? await services.stories.story(id: storyID) else { return }
-        story = s
-        player.load(duration: s.audioDurationSeconds)
-        related = (try? await services.stories.related(to: s)) ?? []
+        guard let loaded = try? await services.stories.story(id: storyID) else { return }
+        story = loaded
+        player.load(duration: loaded.audioDurationSeconds)
+        library.recordRead(loaded.id)
+        highlightStore.reconcile(storyID: loaded.id, body: loaded.body)
+
+        let catalog = (try? await services.stories.allStories()) ?? []
+        related = services.recommender.similar(to: loaded, in: catalog, limit: 6)
     }
 }
 
-#Preview {
-    NavigationStack { StoryDetailView(storyID: "sounion") }
-        .environment(LibraryStore())
-        .preferredColorScheme(.dark)
+#Preview("With highlights") {
+    NavigationStack { StoryDetailView(storyID: "sounion").appDestinations() }
+        .previewEnvironment()
+}
+
+#Preview("No highlights") {
+    NavigationStack { StoryDetailView(storyID: "knossos").appDestinations() }
+        .previewEnvironment()
 }

@@ -4,6 +4,7 @@ import SwiftUI
 struct CultureApp: App {
     @State private var router = Router()
     @State private var library = LibraryStore()
+    @State private var highlights = HighlightStore()
 
     init() {
         Appearance.configure()
@@ -14,7 +15,8 @@ struct CultureApp: App {
             RootView()
                 .environment(router)
                 .environment(library)
-                .environment(\.services, .mock)
+                .environment(highlights)
+                .environment(\.services, .current)
                 .tint(Palette.accent)
                 // Brand decision: dark-first cinematic look. Remove to follow system.
                 .preferredColorScheme(.dark)
