@@ -6,10 +6,14 @@ struct StoryDetailView: View {
     @Environment(\.services) private var services
     @Environment(LibraryStore.self) private var library
     @Environment(HighlightStore.self) private var highlightStore
+    @Environment(Router.self) private var router
     @State private var story: Story?
     @State private var related: [Story] = []
-    @State private var player = AudioPlayer()
+    @State private var player = StoryNarrator()
+    @State private var assistant = StoryAssistant()
     @State private var expanded = false
+    @State private var viewingPhotos: PhotoViewerItem?
+    @State private var showsStoryline = false
 
     // Highlighting
     @State private var selection: NSRange?
@@ -28,12 +32,38 @@ struct StoryDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar { if let story { toolbar(story) } }
+        // Swipe left from the right edge: the site, nearby sites and your photos on the map.
+        .overlay(alignment: .trailing) {
+            if let story { MapPullTab { openMap(story) } }
+        }
+        // AI widget: read aloud, ask questions, language. Out of the way while highlighting.
+        .overlay {
+            if let story, selection == nil, activeHighlightID == nil {
+                StoryAIWidget(story: story, player: player, assistant: assistant)
+                    .transition(.opacity)
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let story { actionBar(story) }
         }
         .animation(Motion.snappy, value: selection)
         .animation(Motion.snappy, value: activeHighlightID)
         .sheet(item: $noteEditing) { editing in noteSheet(editing) }
+        .fullScreenCover(isPresented: $showsStoryline) {
+            if let story {
+                // "Read the full story" just closes the player onto the article.
+                StorylinePlayer(story: story, scenes: Storyline.scenes(for: story)) {
+                    withAnimation(Motion.smooth) { expanded = true }
+                }
+            }
+        }
+        .fullScreenCover(item: $viewingPhotos) { item in
+            // Already in this story, so no "Read the story" button.
+            PhotoViewer(item: item, onShowOnMap: { photo in
+                viewingPhotos = nil
+                router.open(.map(focus: photo.id, site: storyID))
+            })
+        }
         .sensoryFeedback(.impact(weight: .light), trigger: highlightStore.highlights.count)
         .onChange(of: selection) { if selection != nil { activeHighlightID = nil } }
         .task(id: storyID) { await load() }
@@ -49,10 +79,22 @@ struct StoryDetailView: View {
 
                 VStack(alignment: .leading, spacing: Spacing.xl) {
                     header(story)
-                    AudioPlayerCard(player: player)
+                    // The tale as animated scenes, before the full text.
+                    StorylineCard(story: story, scenes: Storyline.scenes(for: story), isPlaying: !showsStoryline) {
+                        player.pause()
+                        showsStoryline = true
+                    }
                     article(story, highlights: marks)
                 }
                 .padding(.horizontal, Spacing.screen)
+
+                // Photos the user snapped at this site (the map is a swipe away)
+                StoryPhotoGallery(
+                    story: story,
+                    onOpenPhotos: { photos, start in viewingPhotos = PhotoViewerItem(photos: photos, start: start) },
+                    onShowMap: { openMap(story) }
+                )
+                .padding(.top, Spacing.section)
 
                 if !marks.isEmpty {
                     StoryHighlightsSection(highlights: marks) { highlight in
@@ -84,7 +126,7 @@ struct StoryDetailView: View {
                     .padding(.horizontal, Spacing.screen)
                     .padding(.top, Spacing.xxl)
             }
-            .padding(.bottom, Spacing.section)
+            .padding(.bottom, Spacing.section + 72) // clear of the AI button
         }
         .scrollIndicators(.hidden)
         .ignoresSafeArea(edges: .top)
@@ -253,10 +295,15 @@ struct StoryDetailView: View {
         }
     }
 
+    private func openMap(_ story: Story) {
+        router.open(.map(site: story.id))
+    }
+
     private func load() async {
         guard let loaded = try? await services.stories.story(id: storyID) else { return }
         story = loaded
-        player.load(duration: loaded.audioDurationSeconds)
+        player.load(loaded)
+        assistant.load(loaded)
         library.recordRead(loaded.id)
         highlightStore.reconcile(storyID: loaded.id, body: loaded.body)
 

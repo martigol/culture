@@ -2,12 +2,12 @@ import SwiftUI
 import Observation
 
 enum AppTab: Hashable, CaseIterable {
-    case home, discover, scan, stories, library
+    case home, gallery, scan, stories, library
 
     var title: String {
         switch self {
         case .home: "Home"
-        case .discover: "Discover"
+        case .gallery: "Gallery"
         case .scan: "Scan"
         case .stories: "Stories"
         case .library: "Library"
@@ -17,7 +17,7 @@ enum AppTab: Hashable, CaseIterable {
     var symbol: String {
         switch self {
         case .home: "house"
-        case .discover: "sparkles"
+        case .gallery: "photo.on.rectangle.angled"
         case .scan: "viewfinder"
         case .stories: "text.book.closed"
         case .library: "books.vertical"
@@ -30,6 +30,11 @@ enum Route: Hashable {
     case story(Story.ID)
     case library(LibrarySection)
     case collection(StoryCollection.ID)
+    /// The app's one map (Snap Map style): every pinned photo and every site.
+    /// Optionally centred on one photo, or on a story's site with its nearest neighbours.
+    case map(focus: SitePhoto.ID? = nil, site: Story.ID? = nil)
+    /// Every site photo, grouped by place.
+    case photos
 }
 
 enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
@@ -62,9 +67,19 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
 @Observable
 @MainActor
 final class Router {
-    var selectedTab: AppTab = .home
+    var selectedTab: AppTab = .home {
+        didSet { if selectedTab != oldValue { setTabBarCollapsed(false) } }
+    }
     var isScanPresented = false
     var paths: [AppTab: [Route]] = [:]
+
+    /// The tab bar shrinks to Home · Scan · Library while scrolling down.
+    private(set) var isTabBarCollapsed = false
+
+    func setTabBarCollapsed(_ collapsed: Bool) {
+        guard collapsed != isTabBarCollapsed else { return }
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) { isTabBarCollapsed = collapsed }
+    }
 
     func binding(for tab: AppTab) -> Binding<[Route]> {
         Binding(get: { self.paths[tab] ?? [] }, set: { self.paths[tab] = $0 })

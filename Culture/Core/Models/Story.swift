@@ -7,6 +7,8 @@ struct Story: Identifiable, Hashable, Sendable {
     var subtitle: String
     var category: StoryCategory
     var region: String
+    /// Where the story happens: the site, or the museum that holds the object.
+    var location: GeoPoint
     var era: String
     var durationMinutes: Int
     var summary: String

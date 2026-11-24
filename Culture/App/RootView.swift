@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Root tab bar. "Scan" is a tab for discoverability, but selecting it presents
-/// the full-screen camera instead of switching tabs (camera is a modal task, HIG).
+/// Root tabs with the custom Liquid Glass bar (`AppTabBar`) in place of the
+/// system tab bar. "Scan" sits in the bar for discoverability, but opens the
+/// full-screen camera instead of switching tabs (camera is a modal task, HIG).
 struct RootView: View {
     @Environment(Router.self) private var router
     @Namespace private var zoom
@@ -11,13 +12,12 @@ struct RootView: View {
 
         TabView(selection: tabSelection) {
             tab(.home) { HomeView() }
-            tab(.discover) { DiscoverView() }
-            Color.clear
-                .tabItem { Label(AppTab.scan.title, systemImage: AppTab.scan.symbol) }
-                .tag(AppTab.scan)
+            tab(.gallery) { PhotoGalleryView() }
             tab(.stories) { StoriesView() }
             tab(.library) { LibraryView() }
         }
+        // Content scrolls under the bar; screens' own bottom bars sit above it.
+        .safeAreaInset(edge: .bottom, spacing: 0) { AppTabBar() }
         .fullScreenCover(isPresented: $router.isScanPresented) {
             ScanView()
         }
@@ -37,9 +37,10 @@ struct RootView: View {
         NavigationStack(path: router.binding(for: tab)) {
             content()
                 .appDestinations()
+                .collapsesTabBarOnScroll()
+                .toolbar(.hidden, for: .tabBar)
         }
         .environment(\.zoomNamespace, zoom)
-        .tabItem { Label(tab.title, systemImage: tab.symbol) }
         .tag(tab)
     }
 }
@@ -54,14 +55,25 @@ private struct AppDestinations: ViewModifier {
 
     func body(content: Content) -> some View {
         content.navigationDestination(for: Route.self) { route in
-            switch route {
-            case .story(let id):
-                StoryDetailView(storyID: id).zoomDestination(id: id, in: zoom)
-            case .library(let section):
-                LibraryListView(section: section)
-            case .collection(let id):
-                CollectionView(collectionID: id)
-            }
+            destination(for: route)
+                .collapsesTabBarOnScroll()
+                .toolbar(.hidden, for: .tabBar)
+        }
+    }
+
+    @ViewBuilder
+    private func destination(for route: Route) -> some View {
+        switch route {
+        case .story(let id):
+            StoryDetailView(storyID: id).zoomDestination(id: id, in: zoom)
+        case .library(let section):
+            LibraryListView(section: section)
+        case .collection(let id):
+            CollectionView(collectionID: id)
+        case let .map(focus, site):
+            JourneyMapView(focus: focus, site: site)
+        case .photos:
+            PhotoGalleryView()
         }
     }
 }

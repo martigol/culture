@@ -20,6 +20,10 @@ struct HomeView: View {
         .screenBackground()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { router.open(.map(focus: nil)) } label: { Image(systemName: "map").fontWeight(.light) }
+                    .accessibilityLabel("Your map")
+            }
             ToolbarItem(placement: .principal) { BrandHeader() }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {} label: { Image(systemName: "person").fontWeight(.light) }
