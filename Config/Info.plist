@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Injected from Config/*.xcconfig; read via AppConfig. -->
+	<key>APIBaseURL</key>
+	<string>$(API_BASE_URL)</string>
+
+	<!-- Brand display face (Fontshare). UI/body text uses SF Pro. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>Zodiak-Regular.otf</string>
+		<string>Zodiak-Italic.otf</string>
+	</array>
+
+	<!-- SECURITY: HTTPS only. Do not add exceptions without a security review. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+	</dict>
+</dict>
+</plist>

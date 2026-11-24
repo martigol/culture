@@ -1,0 +1,16 @@
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Secrets – never commit
+Config/Secrets.xcconfig
+*.p12
+*.mobileprovision
+.env
+
+.DS_Store
