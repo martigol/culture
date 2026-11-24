@@ -21,8 +21,24 @@ enum CameraError: LocalizedError {
     }
 }
 
+/// What the active camera can do. Zoom values are "display" zoom, as on the
+/// system Camera app: 1× is the wide lens, 0.5× the ultra-wide.
+struct CameraCapabilities: Sendable, Equatable {
+    var position: AVCaptureDevice.Position = .back
+    /// `videoZoomFactor = display zoom × multiplier` (2 on virtual devices with an ultra-wide).
+    var zoomMultiplier: CGFloat = 1
+    var minZoom: CGFloat = 0.5
+    var maxZoom: CGFloat = 5
+    var hasFlash = false
+
+    /// Stops shown on the zoom rail.
+    var zoomStops: [CGFloat] {
+        [0.5, 1, 2, 5].filter { $0 >= minZoom - 0.01 && $0 <= maxZoom + 0.01 }
+    }
+}
+
 /// UI-facing camera state for the Scan screen: permission, live detections,
-/// torch and still capture. All AVFoundation work lives in `CaptureEngine`.
+/// zoom, flip, torch/flash and still capture. All AVFoundation work lives in `CaptureEngine`.
 @Observable
 @MainActor
 final class CameraController {
@@ -33,6 +49,10 @@ final class CameraController {
     private(set) var detections: [DetectedObject] = []
     /// Pixel size of the analysed (portrait) frames, used to place boxes on the preview.
     private(set) var frameSize: CGSize = .zero
+    /// The active lens. Without a camera (Simulator, previews) the defaults keep the rail drawn.
+    private(set) var capabilities = CameraCapabilities()
+    /// Current display zoom (1 = wide lens).
+    private(set) var zoom: CGFloat = 1
 
     let engine = CaptureEngine()
     private let detector: any ObjectDetecting
@@ -67,7 +87,8 @@ final class CameraController {
         }
 
         do {
-            try await engine.start()
+            capabilities = try await engine.start()
+            zoom = 1
             status = .running
         } catch {
             Log.scan.error("Camera start failed: \(error.localizedDescription)")
@@ -84,11 +105,33 @@ final class CameraController {
 
     func setTorch(_ on: Bool) { engine.setTorch(on) }
 
+    /// Sets the display zoom, clamped to what the lens allows. `animated` ramps smoothly (rail taps);
+    /// pinching sets it directly.
+    func setZoom(_ value: CGFloat, animated: Bool = true) {
+        let clamped = min(max(value, capabilities.minZoom), capabilities.maxZoom)
+        zoom = clamped
+        guard status == .running else { return }
+        engine.setZoom(clamped * capabilities.zoomMultiplier, animated: animated)
+    }
+
+    /// Switches between the back and front cameras.
+    func flip() async {
+        guard status == .running else { return }
+        let next: AVCaptureDevice.Position = capabilities.position == .back ? .front : .back
+        do {
+            capabilities = try await engine.switchCamera(to: next)
+            zoom = 1
+            detections = []
+        } catch {
+            Log.scan.error("Camera flip failed: \(error.localizedDescription)")
+        }
+    }
+
     /// JPEG/HEIC data of a full-resolution still, or `nil` if the camera isn't running.
-    func capturePhoto() async -> Data? {
+    func capturePhoto(flash: Bool = false) async -> Data? {
         guard status == .running else { return nil }
         do {
-            return try await engine.capturePhoto()
+            return try await engine.capturePhoto(flash: flash)
         } catch {
             Log.scan.error("Photo capture failed: \(error.localizedDescription)")
             return nil
@@ -123,23 +166,57 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
     private var device: AVCaptureDevice?
+    private var input: AVCaptureDeviceInput?
     private var isConfigured = false
+    private var capabilities = CameraCapabilities()
     private var inFlightCaptures: [Int64: PhotoCaptureProcessor] = [:]
 
     static var isAvailable: Bool {
         AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil
     }
 
-    func start() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            sessionQueue.async { [self] in
-                do {
-                    if !isConfigured { try configure() }
-                    if !session.isRunning { session.startRunning() }
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
+    func start() async throws -> CameraCapabilities {
+        try await onSessionQueue { [self] in
+            if !isConfigured { try configure() }
+            if !session.isRunning { session.startRunning() }
+            return capabilities
+        }
+    }
+
+    func switchCamera(to position: AVCaptureDevice.Position) async throws -> CameraCapabilities {
+        try await onSessionQueue { [self] in
+            session.beginConfiguration()
+            defer { session.commitConfiguration() }
+            try attachDevice(at: position)
+            return capabilities
+        }
+    }
+
+    /// `factor` is the raw `videoZoomFactor`.
+    func setZoom(_ factor: CGFloat, animated: Bool) {
+        sessionQueue.async { [self] in
+            guard let device else { return }
+            let clamped = min(max(factor, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+            do {
+                try device.lockForConfiguration()
+                if animated {
+                    device.ramp(toVideoZoomFactor: clamped, withRate: 12)
+                } else {
+                    device.cancelVideoZoomRamp()
+                    device.videoZoomFactor = clamped
                 }
+                device.unlockForConfiguration()
+            } catch {
+                Log.scan.error("Zoom failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func onSessionQueue<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+            sessionQueue.async {
+                do { continuation.resume(returning: try work()) }
+                catch { continuation.resume(throwing: error) }
             }
         }
     }
@@ -163,7 +240,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         }
     }
 
-    func capturePhoto() async throws -> Data {
+    func capturePhoto(flash: Bool = false) async throws -> Data {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
             sessionQueue.async { [self] in
                 guard session.isRunning else {
@@ -172,6 +249,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
                 }
                 let settings = AVCapturePhotoSettings()
                 settings.photoQualityPrioritization = .balanced
+                if flash, photoOutput.supportedFlashModes.contains(.on) { settings.flashMode = .on }
                 let id = settings.uniqueID
                 let processor = PhotoCaptureProcessor { [weak self] result in
                     self?.sessionQueue.async { self?.inFlightCaptures[id] = nil }
@@ -185,17 +263,10 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
 
     /// Session queue only.
     private func configure() throws {
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-            throw CameraError.unavailable
-        }
         session.beginConfiguration()
         defer { session.commitConfiguration() }
 
         session.sessionPreset = .photo
-        let input = try AVCaptureDeviceInput(device: device)
-        guard session.canAddInput(input) else { throw CameraError.configurationFailed }
-        session.addInput(input)
-
         guard session.canAddOutput(photoOutput) else { throw CameraError.configurationFailed }
         session.addOutput(photoOutput)
         photoOutput.maxPhotoQualityPrioritization = .balanced
@@ -208,21 +279,56 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         guard session.canAddOutput(videoOutput) else { throw CameraError.configurationFailed }
         session.addOutput(videoOutput)
 
+        try attachDevice(at: .back)
+        isConfigured = true
+    }
+
+    /// Session queue only, inside a configuration block. Swaps the input to the
+    /// best camera at `position` and records what it can do.
+    private func attachDevice(at position: AVCaptureDevice.Position) throws {
+        guard let device = Self.bestDevice(at: position) else { throw CameraError.unavailable }
+        let newInput = try AVCaptureDeviceInput(device: device)
+        if let input { session.removeInput(input) }
+        guard session.canAddInput(newInput) else {
+            if let input { session.addInput(input) }
+            throw CameraError.configurationFailed
+        }
+        session.addInput(newInput)
+
         // Portrait frames, so Vision's coordinates match what the user sees.
+        // Connections are rebuilt with the new input, so set this every time.
         for connection in [videoOutput.connection(with: .video), photoOutput.connection(with: .video)] {
             if let connection, connection.isVideoRotationAngleSupported(90) {
                 connection.videoRotationAngle = 90
             }
         }
 
-        if device.isFocusModeSupported(.continuousAutoFocus) {
-            try device.lockForConfiguration()
-            device.focusMode = .continuousAutoFocus
-            device.unlockForConfiguration()
-        }
+        // On virtual devices with an ultra-wide, factor 1 is the ultra-wide, so 1× (wide) is the first switch-over.
+        let hasUltraWide = device.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
+        let multiplier = hasUltraWide ? CGFloat(device.virtualDeviceSwitchOverVideoZoomFactors.first?.doubleValue ?? 2) : 1
 
+        try device.lockForConfiguration()
+        if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+        device.videoZoomFactor = min(max(multiplier, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+        device.unlockForConfiguration()
+
+        capabilities = CameraCapabilities(
+            position: position,
+            zoomMultiplier: multiplier,
+            minZoom: device.minAvailableVideoZoomFactor / multiplier,
+            maxZoom: min(device.maxAvailableVideoZoomFactor / multiplier, 10),
+            hasFlash: photoOutput.supportedFlashModes.contains(.on)
+        )
         self.device = device
-        isConfigured = true
+        input = newInput
+    }
+
+    /// Back: the multi-lens camera when there is one (for 0.5× and 2×), else the wide lens.
+    private static func bestDevice(at position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+        let types: [AVCaptureDevice.DeviceType] = position == .back
+            ? [.builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera]
+            : [.builtInWideAngleCamera]
+        return types.lazy.compactMap { AVCaptureDevice.default($0, for: .video, position: position) }.first
     }
 }
 

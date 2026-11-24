@@ -1,52 +1,90 @@
 import SwiftUI
 import UIKit
 
-/// Full-screen camera experience: live feed with on-device object detection,
-/// then a still is identified and matched to a story.
+/// Full-screen camera with two modes, picked from the list at bottom left:
+/// - **Scan**: live on-device object detection, then a still is identified and matched to a story.
+/// - **Photo**: a plain photo, pinned to the map where it was taken and filed under the nearest site.
+/// Thumb rail on the right: zoom stops, shutter, flip, last photo. Pinch anywhere to zoom.
 /// Falls back to a simulated viewfinder where there's no camera (Simulator, previews).
 struct ScanView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.services) private var services
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(Router.self) private var router
     @Environment(LibraryStore.self) private var library
-    @State private var model = ScanViewModel()
+    @Environment(PhotoStore.self) private var photos
+    @Environment(LocationProvider.self) private var location
+    @State private var model: ScanViewModel
     @State private var camera = CameraController()
+    @State private var sites: [Story] = []
+    @State private var viewing: PhotoViewerItem?
+    @State private var pinchBase: CGFloat?
+    @State private var shutterBlink = 0.0
+
+    init(mode: CaptureMode = .scan) {
+        let model = ScanViewModel()
+        model.mode = mode
+        _model = State(initialValue: model)
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            Spacer(minLength: Spacing.lg)
-            ViewfinderFrame(isScanning: model.phase == .recognizing)
-                .frame(width: 264, height: 320)
-                // Step back while live boxes are showing, so the two don't compete.
-                .opacity(camera.detections.isEmpty || model.phase == .recognizing ? 1 : 0.35)
-                .animation(Motion.smooth, value: camera.detections.isEmpty)
-            Text(instruction)
-                .textStyle(.lede)
-                .foregroundStyle(Palette.ink)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 300)
-                .padding(.top, Spacing.xl)
-                .contentTransition(.opacity)
-                .animation(Motion.smooth, value: model.phase)
-            if camera.status == .unauthorized {
-                Button("Open Settings", action: openSettings)
-                    .buttonStyle(.secondary)
-                    .frame(maxWidth: 220)
-                    .padding(.top, Spacing.md)
+        ZStack {
+            // Pinch anywhere on the feed to zoom.
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(pinchToZoom)
+
+            reticle
+
+            VStack(spacing: 0) {
+                topBar
+                Spacer(minLength: Spacing.lg)
+                HStack(alignment: .bottom, spacing: Spacing.md) {
+                    VStack(alignment: .leading, spacing: Spacing.lg) {
+                        caption
+                        ModePicker(mode: modeBinding)
+                    }
+                    Spacer(minLength: 0)
+                    rail
+                }
             }
-            Spacer(minLength: Spacing.lg)
-            controls
+            .padding(.horizontal, Spacing.screen)
+            .padding(.bottom, Spacing.md)
         }
-        .padding(.horizontal, Spacing.screen)
-        .padding(.bottom, Spacing.lg)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { CameraBackground(camera: camera) }
+        .overlay {
+            // Shutter blink in Photo mode.
+            Color.white.opacity(shutterBlink).ignoresSafeArea().allowsHitTesting(false)
+        }
         .preferredColorScheme(.dark)
         .task { await camera.start() }
+        .task { sites = (try? await services.stories.allStories()) ?? MockData.stories }
+        .task(id: model.photoMessage) {
+            guard model.photoMessage != nil else { return }
+            try? await Task.sleep(for: .seconds(2.5))
+            withAnimation(Motion.smooth) { model.photoMessage = nil }
+        }
         .onDisappear { camera.stop() }
-        .onChange(of: model.isFlashOn) { _, isOn in camera.setTorch(isOn) }
+        .onChange(of: model.isFlashOn) { updateTorch() }
+        .onChange(of: model.mode) { updateTorch() }
+        .onChange(of: model.shutterCount) { blink() }
+        .sensoryFeedback(.impact(weight: .medium), trigger: model.shutterCount)
+        .sensoryFeedback(.selection, trigger: model.mode)
+        .fullScreenCover(item: $viewing) { item in
+            PhotoViewer(
+                item: item,
+                onOpenStory: { id in
+                    viewing = nil
+                    if let story = sites.first(where: { $0.id == id }) ?? MockData.story(id) { open(story) }
+                },
+                onShowOnMap: { photo in
+                    viewing = nil
+                    showOnMap(photo)
+                }
+            )
+        }
         #if DEBUG
         .onAppear {
             if let id = UserDefaults.standard.string(forKey: "debugScanResult"), let story = MockData.story(id) {
@@ -56,7 +94,9 @@ struct ScanView: View {
         #endif
         .sheet(isPresented: resultBinding) {
             if case .recognized(let story) = model.phase {
-                ScanResultSheet(story: story, onOpen: { open(story) }, onRescan: model.reset)
+                ScanResultSheet(story: story, pinnedPhoto: model.pinnedPhoto,
+                                onOpen: { open(story) }, onRescan: model.reset,
+                                onShowOnMap: { showOnMap(model.pinnedPhoto) })
             }
         }
     }
@@ -77,61 +117,262 @@ struct ScanView: View {
         }
     }
 
+    // MARK: Top bar
+
     private var topBar: some View {
-        HStack {
-            CircleIconButton(systemName: "xmark", label: "Close") { dismiss() }
-            Spacer()
-            Text("Scan").textStyle(.section).foregroundStyle(Palette.ink)
-            Spacer()
-            CircleIconButton(systemName: model.isFlashOn ? "bolt.fill" : "bolt",
-                             label: model.isFlashOn ? "Turn flash off" : "Turn flash on") {
-                model.isFlashOn.toggle()
+        HStack(spacing: Spacing.xs) {
+            Button { model.isFlashOn.toggle() } label: {
+                Image(systemName: model.isFlashOn ? "bolt.fill" : "bolt.slash")
+                    .font(.system(size: 16, weight: .regular))
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: HitTarget.minimum, height: HitTarget.minimum)
+                    .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
             }
+            .disabled(camera.capabilities.position == .front)
+            .accessibilityLabel(model.isFlashOn ? "Turn flash off" : "Turn flash on")
+
+            if let chip = statusChip {
+                Text(chip)
+                    .font(.caption.weight(.bold))
+                    .tracking(0.6)
+                    .lineLimit(1)
+                    .padding(.horizontal, Spacing.sm)
+                    .frame(height: HitTarget.minimum)
+                    .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+                    .transition(.opacity)
+            }
+
+            Spacer(minLength: Spacing.sm)
+            CircleIconButton(systemName: "xmark", label: "Close") { dismiss() }
         }
         .foregroundStyle(Palette.ink)
         .padding(.top, Spacing.xs)
+        .animation(Motion.smooth, value: statusChip)
     }
 
-    private var controls: some View {
-        HStack {
-            sideButton("Summary", symbol: "text.quote") { capture() }
-            Spacer()
-            Button(action: capture) {
-                ZStack {
-                    Circle().strokeBorder(Palette.ink.opacity(0.6), lineWidth: 1).frame(width: 80, height: 80)
-                    Circle().fill(Palette.ink).frame(width: 64, height: 64)
-                        .scaleEffect(model.phase == .recognizing ? 0.86 : 1)
-                    if model.phase == .recognizing { ProgressView().tint(Palette.onAccent) }
+    /// Small live status beside the flash: what's in view (Scan) or which site a photo will be filed under (Photo).
+    private var statusChip: String? {
+        switch model.mode {
+        case .scan:
+            guard model.phase == .aiming, let object = camera.detections.first else { return nil }
+            return "\(object.displayLabel.uppercased()) IN VIEW"
+        case .photo:
+            guard let here = location.lastLocation,
+                  let site = ScanViewModel.nearestSite(to: GeoPoint(here.coordinate), in: sites) else { return "PINS TO YOUR MAP" }
+            return "AT \(site.title.uppercased())"
+        }
+    }
+
+    // MARK: Viewfinder
+
+    @ViewBuilder
+    private var reticle: some View {
+        switch model.mode {
+        case .scan:
+            ViewfinderFrame(isScanning: model.phase == .recognizing)
+                .frame(width: 224, height: 280)
+                .offset(y: -90) // clear of the thumb rail
+                // Step back while live boxes are showing, so the two don't compete.
+                .opacity(camera.detections.isEmpty || model.phase == .recognizing ? 1 : 0.35)
+                .animation(Motion.smooth, value: camera.detections.isEmpty)
+                .allowsHitTesting(false)
+                .transition(.scale(scale: 1.15).combined(with: .opacity))
+        case .photo:
+            CornerBrackets(length: 16)
+                .stroke(Palette.ink, style: StrokeStyle(lineWidth: 1.5, lineCap: .square))
+                .frame(width: 70, height: 70)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .transition(.scale(scale: 0.6).combined(with: .opacity))
+        }
+    }
+
+    /// Instruction (Scan) or the last photo's result (Photo), above the mode list.
+    @ViewBuilder
+    private var caption: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text(model.mode == .scan ? instruction : (model.photoMessage ?? "Every photo is pinned where you take it."))
+                .textStyle(.callout)
+                .foregroundStyle(Palette.ink)
+                .shadow(color: .black.opacity(0.6), radius: 4)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+                .animation(Motion.smooth, value: model.phase)
+                .animation(Motion.smooth, value: model.photoMessage)
+            if camera.status == .unauthorized {
+                Button("Open Settings", action: openSettings)
+                    .buttonStyle(.secondary)
+                    .frame(maxWidth: 200)
+            }
+        }
+        .frame(maxWidth: 220, alignment: .leading)
+    }
+
+    // MARK: Thumb rail
+
+    private var rail: some View {
+        VStack(spacing: Spacing.sm) {
+            VStack(spacing: Spacing.xxs) {
+                ForEach(camera.capabilities.zoomStops.reversed(), id: \.self) { stop in
+                    zoomButton(stop)
                 }
+                shutter.padding(.top, Spacing.xs)
+            }
+            .padding(.top, Spacing.sm)
+            .padding([.horizontal, .bottom], 5)
+            .background(Color.black.opacity(0.4), in: Capsule())
+            .overlay(Capsule().strokeBorder(Palette.ink.opacity(0.1), lineWidth: 0.75))
+
+            Button { Task { await camera.flip() } } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(Palette.ink)
+                    .frame(width: 52, height: 52)
+                    .background(Color.black.opacity(0.4), in: Circle())
             }
             .buttonStyle(.pressable)
             .disabled(model.phase == .recognizing)
-            .accessibilityLabel("Capture")
-            .sensoryFeedback(.impact(weight: .heavy), trigger: model.phase == .recognizing)
-            Spacer()
-            sideButton("Nearby", symbol: "mappin") { }
+            .accessibilityLabel(camera.capabilities.position == .back ? "Switch to front camera" : "Switch to back camera")
+
+            lastPhotoButton
         }
-        .padding(.horizontal, Spacing.xs)
+        .frame(width: 72)
     }
 
-    private func capture() { Task { await model.capture(using: services.scanner, camera: camera) } }
+    private func zoomButton(_ stop: CGFloat) -> some View {
+        let stops = camera.capabilities.zoomStops
+        let active = stops.last { $0 <= camera.zoom + 0.01 } ?? stops.first
+        let isActive = stop == active
+        // The active stop shows the live value while pinching (e.g. "1.4×").
+        let label = Self.zoomLabel(isActive ? camera.zoom : stop)
+
+        return Button { camera.setZoom(stop) } label: {
+            Text(label)
+                .font(.system(size: isActive ? 13 : 12, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(isActive ? Palette.onAccent : Palette.inkSecondary)
+                .frame(width: 44, height: 44)
+                .background { if isActive { Circle().fill(Palette.ink) } }
+        }
+        .buttonStyle(.plain)
+        .animation(Motion.snappy, value: isActive)
+        .accessibilityLabel("Zoom \(label)")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+
+    /// ".5×", "1×", "1.4×"
+    static func zoomLabel(_ value: CGFloat) -> String {
+        let rounded = (value * 10).rounded() / 10
+        if rounded < 1 { return String(format: "%.1f×", rounded).replacingOccurrences(of: "0.", with: ".") }
+        if rounded == rounded.rounded() { return "\(Int(rounded))×" }
+        return String(format: "%.1f×", rounded)
+    }
+
+    private var isBusy: Bool { model.phase == .recognizing || model.isTakingPhoto }
+
+    private var shutter: some View {
+        Button(action: shoot) {
+            ZStack {
+                Capsule().strokeBorder(Palette.ink, lineWidth: 3)
+                Capsule().fill(Palette.ink)
+                    .padding(6)
+                    .scaleEffect(isBusy ? 0.92 : 1)
+                if model.phase == .recognizing {
+                    ProgressView().tint(Palette.onAccent)
+                } else if model.mode == .scan {
+                    CaptureModeIcon(mode: .scan, size: 24)
+                        .foregroundStyle(Palette.onAccent)
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: 62, height: 116)
+            .animation(Motion.snappy, value: isBusy)
+            .animation(Motion.smooth, value: model.mode)
+        }
+        .buttonStyle(.pressable)
+        .disabled(isBusy)
+        .accessibilityLabel(model.mode == .scan ? "Scan" : "Take photo")
+        .sensoryFeedback(.impact(weight: .heavy), trigger: model.phase == .recognizing)
+    }
+
+    /// Latest photo; opens the viewer (and from there the map).
+    private var lastPhotoButton: some View {
+        Button {
+            viewing = PhotoViewerItem(photos: Array(photos.photos.prefix(30)))
+        } label: {
+            ZStack {
+                Circle().fill(Color.black.opacity(0.4))
+                if let latest = photos.photos.first {
+                    SitePhotoImage(photo: latest)
+                        .clipShape(Circle())
+                        .id(latest.id)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .frame(width: 52, height: 52)
+            .overlay(Circle().strokeBorder(Palette.ink, lineWidth: 2))
+            .animation(Motion.spring, value: photos.photos.first?.id)
+        }
+        .buttonStyle(.pressable)
+        .disabled(photos.photos.isEmpty)
+        .accessibilityLabel("Your latest photos")
+    }
+
+    // MARK: Actions
+
+    private var modeBinding: Binding<CaptureMode> {
+        Binding(
+            get: { model.mode },
+            set: { newMode in
+                guard newMode != model.mode, !isBusy else { return }
+                model.reset()
+                withAnimation(reduceMotion ? nil : Motion.snappy) { model.mode = newMode }
+            }
+        )
+    }
+
+    private var pinchToZoom: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                let base = pinchBase ?? camera.zoom
+                pinchBase = base
+                camera.setZoom(base * value.magnification, animated: false)
+            }
+            .onEnded { _ in pinchBase = nil }
+    }
+
+    private func shoot() {
+        switch model.mode {
+        case .scan: capture()
+        case .photo:
+            Task { await model.takePhoto(camera: camera, photos: photos, location: location, sites: sites) }
+        }
+    }
+
+    private func capture() {
+        Task { await model.capture(using: services.scanner, camera: camera, photos: photos, location: location) }
+    }
+
+    /// Torch for live scanning only; Photo mode fires the flash with the shot instead.
+    private func updateTorch() {
+        camera.setTorch(model.isFlashOn && model.mode == .scan)
+    }
+
+    private func blink() {
+        guard model.mode == .photo else { return }
+        shutterBlink = 0.7
+        withAnimation(.easeOut(duration: reduceMotion ? 0.15 : 0.35)) { shutterBlink = 0 }
+    }
+
+    /// Closes the camera and opens the user's map (on the Library tab), optionally on a photo.
+    private func showOnMap(_ photo: SitePhoto?) {
+        if case .recognized(let story) = model.phase { library.recordScan(of: story.id) }
+        router.isScanPresented = false
+        router.open(.map(focus: photo?.id), in: .library)
+    }
 
     private func openSettings() {
         if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-    }
-
-    private func sideButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: Spacing.xs) {
-                Image(systemName: symbol)
-                    .font(.system(size: 17, weight: .light))
-                    .frame(width: 48, height: 48)
-                    .overlay(Circle().strokeBorder(Palette.ink.opacity(0.3), lineWidth: 0.75))
-                Text(title).textStyle(.label)
-            }
-            .foregroundStyle(Palette.ink)
-        }
-        .frame(width: 72)
     }
 
     private var resultBinding: Binding<Bool> {
@@ -220,8 +461,10 @@ private struct ViewfinderFrame: View {
 }
 
 private struct CornerBrackets: Shape {
+    var length: CGFloat = 28
+
     func path(in r: CGRect) -> Path {
-        let l: CGFloat = 28
+        let l = length
         var p = Path()
         p.move(to: CGPoint(x: r.minX, y: r.minY + l)); p.addLine(to: CGPoint(x: r.minX, y: r.minY)); p.addLine(to: CGPoint(x: r.minX + l, y: r.minY))
         p.move(to: CGPoint(x: r.maxX - l, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.minY + l))
@@ -231,7 +474,100 @@ private struct CornerBrackets: Shape {
     }
 }
 
-#Preview {
+/// Vertical mode list (bottom left): the current mode large, the others small.
+/// Tap a mode, or swipe up/down on the list, to switch.
+private struct ModePicker: View {
+    @Binding var mode: CaptureMode
+
+    private let modes = CaptureMode.allCases
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            ForEach(modes) { item in
+                let isSelected = item == mode
+                Button { mode = item } label: {
+                    HStack(spacing: Spacing.sm) {
+                        CaptureModeIcon(mode: item, size: isSelected ? 26 : 18)
+                            .foregroundStyle(isSelected ? Palette.onAccent : Palette.ink)
+                            .frame(width: isSelected ? 60 : 44, height: isSelected ? 60 : 44)
+                            .background {
+                                if isSelected {
+                                    Circle().fill(Palette.ink)
+                                } else {
+                                    Circle().fill(Color.black.opacity(0.4))
+                                        .overlay(Circle().strokeBorder(Palette.ink.opacity(0.3), lineWidth: 0.75))
+                                }
+                            }
+                            .shadow(color: .black.opacity(isSelected ? 0.4 : 0), radius: 6, y: 2)
+                        if isSelected {
+                            Text(item.title.uppercased())
+                                .font(.caption.weight(.bold))
+                                .tracking(1.2)
+                                .foregroundStyle(Palette.ink)
+                                .shadow(color: .black.opacity(0.6), radius: 4)
+                                .transition(.opacity.combined(with: .move(edge: .leading)))
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.pressable)
+            }
+        }
+        .animation(Motion.snappy, value: mode)
+        .gesture(
+            DragGesture(minimumDistance: 12).onEnded { value in
+                guard let index = modes.firstIndex(of: mode) else { return }
+                // Swiping up brings the next mode (below) up into place.
+                if value.translation.height < -20, index + 1 < modes.count { mode = modes[index + 1] }
+                if value.translation.height > 20, index > 0 { mode = modes[index - 1] }
+            }
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Camera mode")
+        .accessibilityValue(mode.title)
+        .accessibilityHint("Scan identifies a site. Photo just takes a picture and pins it to your map.")
+        .accessibilityAdjustableAction { direction in
+            guard let index = modes.firstIndex(of: mode) else { return }
+            switch direction {
+            case .increment: if index + 1 < modes.count { mode = modes[index + 1] }
+            case .decrement: if index > 0 { mode = modes[index - 1] }
+            @unknown default: break
+            }
+        }
+    }
+}
+
+/// Mode glyphs. Scan: a temple framed by a viewfinder (identify a site).
+/// Photo: a camera aperture (just take the picture).
+struct CaptureModeIcon: View {
+    let mode: CaptureMode
+    var size: CGFloat = 22
+
+    var body: some View {
+        Group {
+            switch mode {
+            case .scan:
+                ZStack {
+                    Image(systemName: "viewfinder")
+                        .font(.system(size: size, weight: .light))
+                    Image(systemName: "building.columns.fill")
+                        .font(.system(size: size * 0.42, weight: .semibold))
+                }
+            case .photo:
+                Image(systemName: "camera.aperture")
+                    .font(.system(size: size, weight: .regular))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+#Preview("Scan") {
     ScanView()
+        .previewEnvironment()
+}
+
+#Preview("Photo") {
+    ScanView(mode: .photo)
         .previewEnvironment()
 }

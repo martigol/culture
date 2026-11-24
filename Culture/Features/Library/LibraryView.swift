@@ -3,11 +3,20 @@ import SwiftUI
 struct LibraryView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(HighlightStore.self) private var highlights
+    @Environment(PhotoStore.self) private var photos
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.section) {
+                journeyCard
+
                 VStack(spacing: 0) {
+                    NavigationLink(value: Route.photos) {
+                        rowLabel(title: "Your Photos", symbol: "photo.on.rectangle.angled", count: photos.photos.count)
+                    }
+                    .buttonStyle(.pressable)
+                    .overlay(alignment: .bottom) { Rectangle().fill(Palette.hairline).frame(height: 0.5) }
+
                     ForEach(Array(LibrarySection.allCases.enumerated()), id: \.element) { index, section in
                         NavigationLink(value: Route.library(section)) { row(section) }
                             .buttonStyle(.pressable)
@@ -40,17 +49,50 @@ struct LibraryView: View {
         .navigationTitle("Library")
     }
 
+    /// Latest pinned places; opens "Your Map".
+    private var journeyCard: some View {
+        NavigationLink(value: Route.map(focus: nil)) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                PinnedPlacesPreview(height: 180)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Your Map").textStyle(.headline).foregroundStyle(Palette.ink)
+                    Spacer()
+                    Text(journeySummary)
+                        .textStyle(.label)
+                        .monospacedDigit()
+                        .foregroundStyle(Palette.inkTertiary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .light))
+                        .foregroundStyle(Palette.inkTertiary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.pressable)
+        .padding(.horizontal, Spacing.screen)
+        .accessibilityLabel("Your Map, \(journeySummary)")
+    }
+
+    private var journeySummary: String {
+        let places = photos.places.count
+        return places == 0 ? "No places yet" : "\(places) \(places == 1 ? "place" : "places") · \(photos.photos.count) photos"
+    }
+
     private func row(_ section: LibrarySection) -> some View {
+        rowLabel(title: section.title, symbol: section.symbol, count: count(for: section))
+    }
+
+    private func rowLabel(title: String, symbol: String, count: Int) -> some View {
         HStack(spacing: Spacing.md) {
-            Image(systemName: section.symbol)
+            Image(systemName: symbol)
                 .font(.system(size: 16, weight: .light))
                 .foregroundStyle(Palette.ink)
                 .frame(width: 24)
-            Text(section.title)
+            Text(title)
                 .textStyle(.headline)
                 .foregroundStyle(Palette.ink)
             Spacer()
-            Text(count(for: section))
+            Text("\(count)")
                 .textStyle(.label)
                 .monospacedDigit()
                 .foregroundStyle(Palette.inkTertiary)
@@ -62,15 +104,14 @@ struct LibraryView: View {
         .contentShape(Rectangle())
     }
 
-    private func count(for section: LibrarySection) -> String {
-        let n: Int = switch section {
+    private func count(for section: LibrarySection) -> Int {
+        switch section {
         case .saved: library.savedIDs.count
         case .highlights: highlights.highlights.count
         case .offline: library.offlineIDs.count
         case .history: library.scanHistory.count
         case .collections: library.collections.count
         }
-        return "\(n)"
     }
 }
 

@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Inline narration player.
+/// Inline narration player: the story read aloud by `StoryNarrator`.
 struct AudioPlayerCard: View {
-    @Bindable var player: AudioPlayer
+    @Bindable var player: StoryNarrator
 
     var body: some View {
         VStack(spacing: Spacing.md) {
@@ -16,11 +16,14 @@ struct AudioPlayerCard: View {
                         .background(Palette.accent, in: Circle())
                 }
                 .buttonStyle(.pressable)
-                .accessibilityLabel(player.isPlaying ? "Pause narration" : "Play narration")
+                .accessibilityLabel(player.isPlaying ? "Pause reading" : "Read the story aloud")
+                .sensoryFeedback(.selection, trigger: player.isPlaying)
 
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    Text("Listen").textStyle(.headline).foregroundStyle(Palette.ink)
-                    Text("Narrated · \(AudioPlayer.format(player.duration))")
+                    Text(player.isPlaying ? "Reading…" : "Listen")
+                        .textStyle(.headline).foregroundStyle(Palette.ink)
+                        .contentTransition(.opacity)
+                    Text("Read aloud · \(StoryNarrator.format(player.duration))")
                         .textStyle(.label).foregroundStyle(Palette.inkTertiary)
                         .lineLimit(1)
                         .fixedSize()
@@ -43,9 +46,9 @@ struct AudioPlayerCard: View {
             VStack(spacing: Spacing.xs) {
                 ProgressLine(progress: player.progress)
                 HStack {
-                    Text(AudioPlayer.format(player.elapsed))
+                    Text(StoryNarrator.format(player.elapsed))
                     Spacer()
-                    Text("−" + AudioPlayer.format(player.duration - player.elapsed))
+                    Text("−" + StoryNarrator.format(player.duration - player.elapsed))
                 }
                 .textStyle(.label)
                 .monospacedDigit()
@@ -79,4 +82,14 @@ private struct ProgressLine: View {
         .accessibilityLabel("Playback progress")
         .accessibilityValue("\(Int(progress * 100)) percent")
     }
+}
+
+#Preview {
+    let narrator = StoryNarrator()
+    narrator.load(MockData.story("sounion")!)
+    return AudioPlayerCard(player: narrator)
+        .padding(Spacing.screen)
+        .frame(maxHeight: .infinity)
+        .screenBackground()
+        .previewEnvironment()
 }

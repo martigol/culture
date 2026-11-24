@@ -9,13 +9,15 @@ import SwiftUI
 
 extension View {
     /// Injects every app-wide dependency with sample data, for `#Preview`:
-    /// router, library, highlights (seeded), mock services, dark scheme.
+    /// router, library, highlights and site photos (seeded), location, mock services, dark scheme.
     @MainActor
     func previewEnvironment() -> some View {
         self
             .environment(Router())
             .environment(LibraryStore())
             .environment(HighlightStore.preview)
+            .environment(PhotoStore.preview)
+            .environment(LocationProvider())
             .environment(\.services, .mock)
             .preferredColorScheme(.dark)
     }
