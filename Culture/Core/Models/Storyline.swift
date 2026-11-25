@@ -15,6 +15,14 @@ enum SceneBackdrop: String, CaseIterable, Sendable {
     case dusk = "storyline-dusk"
     /// A winged figure in drifting cloud: flight, victory, messengers.
     case wings = "storyline-wings"
+    /// Poseidon rising with his trident through sea mist.
+    case sea = "storyline-sea"
+    /// Zeus with his eagle on a lit summit.
+    case summit = "storyline-summit"
+    /// Apollo backlit by the sun, arrows at his back.
+    case sun = "storyline-sun"
+    /// Ares among the fallen, spear raised.
+    case battle = "storyline-battle"
 
     var url: URL? { Bundle.main.url(forResource: rawValue, withExtension: "gif") }
 }
@@ -27,6 +35,20 @@ struct StoryScene: Identifiable, Hashable, Sendable {
     /// One to three vivid sentences, read on screen (and aloud if sound is on).
     let text: String
     let backdrop: SceneBackdrop
+    /// Asked once the scene has been told: the story waits for an answer.
+    var question: SceneQuestion? = nil
+}
+
+/// "What do you think happened next?" — a choice the reader makes before
+/// the story carries on. Not a test: every answer leads on, but guessing
+/// right feels good.
+struct SceneQuestion: Hashable, Sendable {
+    let prompt: String
+    let options: [String]
+    /// Index into `options`.
+    let answer: Int
+    /// Shown after answering, whichever was chosen.
+    let reveal: String
 }
 
 /// The storyline for each story: the tale retold in a handful of cinematic
@@ -34,10 +56,16 @@ struct StoryScene: Identifiable, Hashable, Sendable {
 /// its own paragraphs.
 enum Storyline {
     static func scenes(for story: Story) -> [StoryScene] {
-        let beats = scripts[story.id] ?? fallback(for: story)
+        let beats = scripts[story.id] ?? mythScripts[story.id] ?? fallback(for: story)
+        let asks = questions[story.id] ?? [:]
         return beats.enumerated().map { index, beat in
-            StoryScene(id: index, title: beat.0, text: beat.1, backdrop: beat.2)
+            StoryScene(id: index, title: beat.0, text: beat.1, backdrop: beat.2, question: asks[index])
         }
+    }
+
+    /// Stories that have a hand-made storyline (the order "Up next" follows).
+    static var storyIDs: [Story.ID] {
+        MockData.stories.map(\.id).filter { scripts[$0] != nil || mythScripts[$0] != nil }
     }
 
     /// Roman numeral for a scene number, "I"…"X".
@@ -81,7 +109,7 @@ enum Storyline {
              .wings),
             ("Apollo's voice",
              "Above a cleft in the rock, the Pythia sat on her tripod, breathed the sweet vapours — and Apollo spoke through her lips.",
-             .divine),
+             .sun),
             ("A riddle for a king",
              "Croesus asked if he should march on Persia. “Cross the river and a great empire will fall.” One did. His own.",
              .dusk),
@@ -101,12 +129,12 @@ enum Storyline {
              .divine),
             ("Poseidon's temple",
              "The sea still bears his name: the Aegean. High above it, Poseidon's columns catch the last light of every day.",
-             .dusk),
+             .sea),
         ],
         "knossos": [
             ("A gift from the sea",
              "Poseidon sent King Minos a snow-white bull to sacrifice. Minos kept it for himself — and the gods made him pay.",
-             .divine),
+             .sea),
             ("The labyrinth",
              "Daedalus built a maze so tangled that even he could barely find the way out. In its heart, the Minotaur waited.",
              .dusk),
@@ -126,10 +154,10 @@ enum Storyline {
              .divine),
             ("Thunderbolt or trident?",
              "His hand once gripped a weapon, now lost. A thunderbolt would make him Zeus; a trident, Poseidon. The argument has never ended.",
-             .wings),
+             .sea),
             ("Perfect balance",
              "Arms spread over two metres, weight on his front foot: a god caught in the instant before he lets fly.",
-             .divine),
+             .summit),
         ],
         "agamemnon": [
             ("The digger",
@@ -154,7 +182,7 @@ enum Storyline {
              .divine),
             ("The king returns",
              "Through this gate Agamemnon rode home from Troy in triumph, towards a wife who had never forgiven him.",
-             .wings),
+             .battle),
             ("Rich in gold",
              "Homer called it Mycenae rich in gold. Now only the wind moves through the citadel, and the headless lions keep watch.",
              .dusk),
@@ -218,7 +246,7 @@ enum Storyline {
         "olympia": [
             ("Zeus's sanctuary",
              "In a green valley in Elis stood a temple to Zeus, and inside it his seated statue — one of the Seven Wonders of the World.",
-             .divine),
+             .summit),
             ("776 BC",
              "That year, the first recorded champion won the footrace: Koroibos, a cook from Elis. His prize was a wreath of olive.",
              .dusk),

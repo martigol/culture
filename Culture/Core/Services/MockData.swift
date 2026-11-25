@@ -3,7 +3,10 @@ import Foundation
 /// Sample content so every screen renders meaningfully during development.
 /// Image credits: docs/IMAGE_CREDITS.md. Delete once the real backend lands.
 enum MockData {
-    static let stories: [Story] = [
+    /// The sites, then the myths retold from Berens (BerensMyths.swift).
+    static let stories: [Story] = siteStories + berensMyths
+
+    private static let siteStories: [Story] = [
         Story(
             id: "parthenon", title: "The Parthenon", subtitle: "Temple of the Maiden",
             category: .places, region: "Athens", location: GeoPoint(37.9715, 23.7267), era: "447–432 BC", durationMinutes: 6,
@@ -108,6 +111,9 @@ enum MockData {
 
     static let collections: [StoryCollection] = [
         StoryCollection(id: "olympians", name: "Gods of Olympus", storyIDs: ["zeus", "sounion", "parthenon", "delphi"]),
+        StoryCollection(id: "old-gods", name: "Myths of the Old Gods",
+                        storyIDs: ["birth-of-zeus", "birth-of-aphrodite", "poseidon-deep", "apollo-daphne",
+                                   "niobe", "hill-of-ares", "phaethon", "persephone"]),
         StoryCollection(id: "mycenaean", name: "The Mycenaean Age", storyIDs: ["mycenae", "agamemnon"]),
         StoryCollection(id: "myths", name: "Monsters & Heroes", storyIDs: ["knossos", "medusa"]),
         StoryCollection(id: "listening", name: "Evening Listening", storyIDs: ["epidaurus", "nike", "charioteer"]),

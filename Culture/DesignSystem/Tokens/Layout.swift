@@ -23,6 +23,10 @@ enum Spacing {
 
 /// Restrained, near-square corners — prints and plates, not bubbles.
 enum Radius {
+    /// Glass feed cards (Home).
+    static let card: CGFloat = 30
+    /// Media and panels inside a glass card.
+    static let cardInner: CGFloat = 22
     static let xs: CGFloat = 2
     static let sm: CGFloat = 4
     static let md: CGFloat = 6

@@ -4,6 +4,8 @@ struct LibraryView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(HighlightStore.self) private var highlights
     @Environment(PhotoStore.self) private var photos
+    @Environment(PermissionsCenter.self) private var permissions
+    @State private var showsPermissions = false
 
     var body: some View {
         ScrollView {
@@ -11,6 +13,13 @@ struct LibraryView: View {
                 journeyCard
 
                 VStack(spacing: 0) {
+                    NavigationLink(value: Route.odyssey) {
+                        rowLabel(title: "Your Odyssey", symbol: Odyssey(photos: photos.photos).rank.symbol,
+                                 count: photos.capturedSiteIDs.count)
+                    }
+                    .buttonStyle(.pressable)
+                    .overlay(alignment: .bottom) { Rectangle().fill(Palette.hairline).frame(height: 0.5) }
+
                     NavigationLink(value: Route.photos) {
                         rowLabel(title: "Your Photos", symbol: "photo.on.rectangle.angled", count: photos.photos.count)
                     }
@@ -20,12 +29,15 @@ struct LibraryView: View {
                     ForEach(Array(LibrarySection.allCases.enumerated()), id: \.element) { index, section in
                         NavigationLink(value: Route.library(section)) { row(section) }
                             .buttonStyle(.pressable)
-                            .overlay(alignment: .bottom) {
-                                if index < LibrarySection.allCases.count - 1 {
-                                    Rectangle().fill(Palette.hairline).frame(height: 0.5)
-                                }
-                            }
+                            .overlay(alignment: .bottom) { Rectangle().fill(Palette.hairline).frame(height: 0.5) }
                     }
+
+                    Button { showsPermissions = true } label: {
+                        rowLabel(title: "Permissions & nearby alerts",
+                                 symbol: permissions.allGranted ? "checkmark.shield" : "exclamationmark.shield",
+                                 count: nil)
+                    }
+                    .buttonStyle(.pressable)
                 }
                 .padding(.horizontal, Spacing.screen)
 
@@ -47,6 +59,11 @@ struct LibraryView: View {
         .scrollIndicators(.hidden)
         .screenBackground()
         .navigationTitle("Library")
+        .sheet(isPresented: $showsPermissions) {
+            PermissionsView { showsPermissions = false }
+                .presentationDragIndicator(.visible)
+        }
+        .task { await permissions.refresh() }
     }
 
     /// Latest pinned places; opens "Your Map".
@@ -82,7 +99,7 @@ struct LibraryView: View {
         rowLabel(title: section.title, symbol: section.symbol, count: count(for: section))
     }
 
-    private func rowLabel(title: String, symbol: String, count: Int) -> some View {
+    private func rowLabel(title: String, symbol: String, count: Int?) -> some View {
         HStack(spacing: Spacing.md) {
             Image(systemName: symbol)
                 .font(.system(size: 16, weight: .light))
@@ -92,10 +109,12 @@ struct LibraryView: View {
                 .textStyle(.headline)
                 .foregroundStyle(Palette.ink)
             Spacer()
-            Text("\(count)")
-                .textStyle(.label)
-                .monospacedDigit()
-                .foregroundStyle(Palette.inkTertiary)
+            if let count {
+                Text("\(count)")
+                    .textStyle(.label)
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.inkTertiary)
+            }
             Image(systemName: "chevron.right")
                 .font(.system(size: 12, weight: .light))
                 .foregroundStyle(Palette.inkTertiary)

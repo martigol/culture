@@ -16,11 +16,19 @@ import SwiftUI
 /// back to a frosted material.
 struct AppTabBar: View {
     @Environment(Router.self) private var router
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var glass
+    /// The selection lens glides between tabs via this namespace.
+    @Namespace private var selection
+    /// Per-tab counter that bounces an icon each time it's chosen.
+    @State private var bounces: [AppTab: Int] = [:]
+
+    /// Springy but settled: the lens slides, the screen fades in.
+    static let switchAnimation = Animation.spring(response: 0.42, dampingFraction: 0.78)
 
     private let barHeight: CGFloat = 64
     private let circleSize: CGFloat = 54
-    private let scanSize: CGFloat = 66
+    private let scanSize: CGFloat = 66 // keep in sync with `reservedHeight`
 
     var body: some View {
         container {
@@ -75,13 +83,17 @@ struct AppTabBar: View {
                     .symbolVariant(isSelected ? .fill : .none)
                     .font(.system(size: 19, weight: .regular))
                     .frame(height: 22)
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce.up, value: bounces[tab] ?? 0)
                 Text(tab.title)
                     .font(.system(size: 10, weight: .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
             .foregroundStyle(isSelected ? Palette.ink : Palette.inkTertiary)
+            .scaleEffect(isSelected ? 1.04 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { selectionLens(isSelected, shape: Capsule(), inset: 5) }
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
@@ -95,8 +107,11 @@ struct AppTabBar: View {
             Image(systemName: tab.symbol)
                 .symbolVariant(isSelected ? .fill : .none)
                 .font(.system(size: 21, weight: .regular))
+                .contentTransition(.symbolEffect(.replace))
+                .symbolEffect(.bounce.up, value: bounces[tab] ?? 0)
                 .foregroundStyle(isSelected ? Palette.ink : Palette.inkSecondary)
                 .frame(width: circleSize, height: circleSize)
+                .background { selectionLens(isSelected, shape: Circle(), inset: 4) }
                 .contentShape(Circle())
         }
         .buttonStyle(.pressable)
@@ -133,12 +148,29 @@ struct AppTabBar: View {
         .accessibilityHint("Opens the camera")
     }
 
+    /// A soft bone lens behind the selected tab. It's one matched shape, so on
+    /// a switch it slides across the bar to the new tab.
+    @ViewBuilder
+    private func selectionLens<S: Shape>(_ isSelected: Bool, shape: S, inset: CGFloat) -> some View {
+        if isSelected {
+            shape
+                .fill(Palette.ink.opacity(0.14))
+                .overlay(shape.stroke(Palette.ink.opacity(0.18), lineWidth: 0.75))
+                .padding(inset)
+                .matchedGeometryEffect(id: "selection", in: selection)
+        }
+    }
+
     private func select(_ tab: AppTab) {
         if tab == router.selectedTab {
             // Tapping the current tab pops back to its root.
             router.paths[tab] = []
+        } else {
+            bounces[tab, default: 0] += 1
         }
-        router.selectedTab = tab
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : Self.switchAnimation) {
+            router.selectedTab = tab
+        }
         router.setTabBarCollapsed(false)
     }
 
@@ -204,7 +236,26 @@ private struct LegacyBarBackground: ViewModifier {
     }
 }
 
+extension AppTabBar {
+    /// Height the bar occupies above the bottom safe area (Scan circle + bottom padding).
+    static let reservedHeight: CGFloat = 66 + Spacing.xxs
+}
+
 extension View {
+    /// Keeps this screen's content and bottom controls (AI button, action
+    /// bars, map panels) clear of the floating tab bar. Content still
+    /// scrolls behind the glass.
+    @ViewBuilder
+    func reservesTabBarSpace(_ reserves: Bool = true) -> some View {
+        if reserves {
+            safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: AppTabBar.reservedHeight).allowsHitTesting(false)
+            }
+        } else {
+            self
+        }
+    }
+
     /// Collapses the tab bar while this view's scroll view scrolls down, and
     /// restores it on scrolling up or near the top (iOS 18+).
     func collapsesTabBarOnScroll() -> some View {
