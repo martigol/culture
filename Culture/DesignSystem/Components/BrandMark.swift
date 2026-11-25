@@ -3,12 +3,12 @@ import SwiftUI
 /// Inscribed wordmark — tracked capitals, like letters cut in marble.
 struct BrandHeader: View {
     var body: some View {
-        Text("CultureLens")
+        Text("CLIO")
             .font(.custom("Zodiak-Regular", size: 15, relativeTo: .headline))
             .tracking(5)
             .textCase(.uppercase)
             .foregroundStyle(Palette.ink)
-            .accessibilityLabel("CultureLens")
+            .accessibilityLabel("Clio")
     }
 }
 

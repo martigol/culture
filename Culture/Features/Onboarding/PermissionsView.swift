@@ -64,7 +64,7 @@ struct PermissionsView: View {
                 .textStyle(.display)
                 .foregroundStyle(Palette.ink)
                 .accessibilityAddTraits(.isHeader)
-            Text("Culture works best with a few things switched on. Here's what each one does.")
+            Text("CLIO works best with a few things switched on. Here's what each one does.")
                 .textStyle(.body)
                 .foregroundStyle(Palette.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)

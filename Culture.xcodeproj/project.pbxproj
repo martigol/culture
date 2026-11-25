@@ -253,9 +253,9 @@
 				DEVELOPMENT_TEAM = ASM92244P4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Culture;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Culture uses the camera to recognise monuments, artifacts and exhibits so it can tell you their story.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Culture uses your location to surface heritage sites and stories near you.";
+				INFOPLIST_KEY_CFBundleDisplayName = CLIO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "CLIO uses the camera to recognise monuments, artifacts and exhibits so it can tell you their story.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "CLIO uses your location to surface heritage sites and stories near you.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
@@ -285,9 +285,9 @@
 				DEVELOPMENT_TEAM = ASM92244P4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Culture;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Culture uses the camera to recognise monuments, artifacts and exhibits so it can tell you their story.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Culture uses your location to surface heritage sites and stories near you.";
+				INFOPLIST_KEY_CFBundleDisplayName = CLIO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "CLIO uses the camera to recognise monuments, artifacts and exhibits so it can tell you their story.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "CLIO uses your location to surface heritage sites and stories near you.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = NO;

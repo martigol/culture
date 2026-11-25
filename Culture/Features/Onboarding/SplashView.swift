@@ -41,7 +41,7 @@ struct SplashView: View {
                     medallion
                         .scaleEffect(scale)
                         .opacity(isRevealing ? 0 : (appeared ? 1 : 0))
-                    Text("CULTURE")
+                    Text("CLIO")
                         .font(.system(size: 13, weight: .semibold))
                         .tracking(9)
                         .foregroundStyle(Palette.inkSecondary)
@@ -55,7 +55,7 @@ struct SplashView: View {
         .ignoresSafeArea()
         .allowsHitTesting(!isRevealing)
         .accessibilityElement()
-        .accessibilityLabel("Culture")
+        .accessibilityLabel("Clio")
     }
 
     /// Black, with a circular window that opens up as the medallion grows.
