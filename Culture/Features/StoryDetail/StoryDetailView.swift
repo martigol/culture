@@ -49,19 +49,24 @@ struct StoryDetailView: View {
         .animation(Motion.snappy, value: selection)
         .animation(Motion.snappy, value: activeHighlightID)
         .sheet(item: $noteEditing) { editing in noteSheet(editing) }
-        .fullScreenCover(isPresented: $showsStoryline) {
+        .fullScreenCover(isPresented: $showsStoryline, onDismiss: router.openPending) {
             if let story {
-                // "Read the full story" just closes the player onto the article.
-                StorylinePlayer(story: story, scenes: Storyline.scenes(for: story)) {
-                    withAnimation(Motion.smooth) { expanded = true }
+                StorylinePlayer(story: story) { shown in
+                    if shown.id == story.id {
+                        // Same story: just close the player onto the article.
+                        withAnimation(Motion.smooth) { expanded = true }
+                    } else {
+                        // "Up next" moved on to another myth: open that one.
+                        router.openAfterDismiss(.story(shown.id))
+                    }
                 }
             }
         }
-        .fullScreenCover(item: $viewingPhotos) { item in
+        .fullScreenCover(item: $viewingPhotos, onDismiss: router.openPending) { item in
             // Already in this story, so no "Read the story" button.
             PhotoViewer(item: item, onShowOnMap: { photo in
+                router.openAfterDismiss(.map(focus: photo.id, site: storyID))
                 viewingPhotos = nil
-                router.open(.map(focus: photo.id, site: storyID))
             })
         }
         .sensoryFeedback(.impact(weight: .light), trigger: highlightStore.highlights.count)
@@ -87,6 +92,28 @@ struct StoryDetailView: View {
                     article(story, highlights: marks)
                 }
                 .padding(.horizontal, Spacing.screen)
+
+                // The gods of this story, as curved glass plates.
+                if !story.plates.isEmpty {
+                    VStack(alignment: .leading, spacing: Spacing.md) {
+                        SectionHeader(title: "The gods of this story", actionTitle: nil)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(spacing: Spacing.md) {
+                                ForEach(story.plates, id: \.imageName) { plate in
+                                    ArtworkView(artwork: plate, engraved: false)
+                                        .frame(width: 200, height: 250)
+                                        .glassCard(cornerRadius: Radius.cardInner, glow: plate)
+                                        .carouselCard()
+                                }
+                            }
+                            .padding(.vertical, Spacing.lg)
+                        }
+                        .contentMargins(.horizontal, Spacing.screen, for: .scrollContent)
+                        .scrollClipDisabled()
+                        .padding(.vertical, -Spacing.lg)
+                    }
+                    .padding(.top, Spacing.section)
+                }
 
                 // Photos the user snapped at this site (the map is a swipe away)
                 StoryPhotoGallery(

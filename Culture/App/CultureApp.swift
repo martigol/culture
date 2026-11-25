@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct CultureApp: App {
@@ -7,6 +8,10 @@ struct CultureApp: App {
     @State private var highlights = HighlightStore()
     @State private var photos = PhotoStore()
     @State private var location = LocationProvider()
+    @State private var permissions = PermissionsCenter()
+    @State private var nearbyAlerts = NearbySiteAlerts()
+    @State private var showsSplash = true
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         Appearance.configure()
@@ -20,7 +25,26 @@ struct CultureApp: App {
                 .environment(highlights)
                 .environment(photos)
                 .environment(location)
+                .environment(permissions)
+                .environment(nearbyAlerts)
                 .environment(\.services, .current)
+                // Launch animation over the app; it opens up to reveal it.
+                .overlay {
+                    if showsSplash { SplashView { showsSplash = false } }
+                }
+                // First launch: switch on what the app needs.
+                .fullScreenCover(isPresented: onboardingBinding) {
+                    PermissionsView { permissions.hasCompletedOnboarding = true }
+                        .environment(permissions)
+                        .environment(nearbyAlerts)
+                        .environment(location)
+                        .environment(\.services, .current)
+                        .preferredColorScheme(.dark)
+                }
+                .task { await setUpNearbyAlerts() }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { Task { await refreshNearbyAlerts() } }
+                }
                 .tint(Palette.accent)
                 // Brand decision: dark-first cinematic look. Remove to follow system.
                 .preferredColorScheme(.dark)
@@ -29,6 +53,36 @@ struct CultureApp: App {
                 .onAppear(perform: applyDebugLaunchRoute)
                 #endif
         }
+    }
+
+    private var onboardingBinding: Binding<Bool> {
+        // Waits for the splash to finish.
+        Binding(get: { !permissions.hasCompletedOnboarding && !showsSplash },
+                set: { if !$0 { permissions.hasCompletedOnboarding = true } })
+    }
+
+    /// Notification actions open the story or Apple Maps; alerts are (re)scheduled.
+    private func setUpNearbyAlerts() async {
+        nearbyAlerts.configure()
+        nearbyAlerts.onOpenStory = { id in
+            if router.isScanPresented {
+                router.openAfterDismiss(.story(id), in: .home)
+                router.isScanPresented = false
+            } else {
+                router.open(.story(id), in: .home)
+            }
+        }
+        nearbyAlerts.onDirections = { id in
+            guard let story = MockData.story(id), let url = story.location.appleMapsURL(name: story.title) else { return }
+            UIApplication.shared.open(url)
+        }
+        await refreshNearbyAlerts()
+    }
+
+    private func refreshNearbyAlerts() async {
+        await permissions.refresh()
+        let sites = (try? await AppEnvironment.current.stories.allStories()) ?? MockData.stories
+        await nearbyAlerts.refresh(sites: sites)
     }
 
     #if DEBUG

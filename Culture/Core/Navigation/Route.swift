@@ -35,6 +35,12 @@ enum Route: Hashable {
     case map(focus: SitePhoto.ID? = nil, site: Story.ID? = nil)
     /// Every site photo, grouped by place.
     case photos
+    /// One place's photos (a `VisitedPlace.ID`).
+    case album(String)
+    /// Search across stories and your photographed places.
+    case search
+    /// The game: every site to photograph, filled or still locked.
+    case odyssey
 }
 
 enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
@@ -76,6 +82,12 @@ final class Router {
     /// The tab bar shrinks to Home · Scan · Library while scrolling down.
     private(set) var isTabBarCollapsed = false
 
+    /// Full-screen destinations with their own back button (the map) hide the tab bar.
+    var isTabBarHidden: Bool {
+        if case .map = paths[selectedTab]?.last { return true }
+        return false
+    }
+
     func setTabBarCollapsed(_ collapsed: Bool) {
         guard collapsed != isTabBarCollapsed else { return }
         withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) { isTabBarCollapsed = collapsed }
@@ -92,6 +104,24 @@ final class Router {
     }
 
     func presentScan() { isScanPresented = true }
+
+    /// A push waiting for a full-screen cover to finish closing.
+    @ObservationIgnored private var pending: (route: Route, tab: AppTab?)?
+
+    /// Use from inside a full-screen cover (photo viewer, camera, storyline)
+    /// that is closing: pushing *while* a cover dismisses can leave an
+    /// invisible layer over the new screen so it stops responding to touch.
+    /// The push runs from the cover's `onDismiss` via `openPending()`.
+    func openAfterDismiss(_ route: Route, in tab: AppTab? = nil) {
+        pending = (route, tab)
+    }
+
+    /// Runs the queued push, if any. Call from a cover's `onDismiss`.
+    func openPending() {
+        guard let pending else { return }
+        self.pending = nil
+        open(pending.route, in: pending.tab)
+    }
 
     /// Theme requested from elsewhere (e.g. Discover); consumed by StoriesView.
     var pendingStoriesFilter: StoryCategory?

@@ -5,7 +5,10 @@ import SwiftUI
 /// full-screen camera instead of switching tabs (camera is a modal task, HIG).
 struct RootView: View {
     @Environment(Router.self) private var router
+    @Environment(PhotoStore.self) private var photos
     @Namespace private var zoom
+    /// A newly captured site whose celebration didn't get shown in the camera.
+    @State private var celebrating: Story?
 
     var body: some View {
         @Bindable var router = router
@@ -16,11 +19,42 @@ struct RootView: View {
             tab(.stories) { StoriesView() }
             tab(.library) { LibraryView() }
         }
-        // Content scrolls under the bar; screens' own bottom bars sit above it.
-        .safeAreaInset(edge: .bottom, spacing: 0) { AppTabBar() }
-        .fullScreenCover(isPresented: $router.isScanPresented) {
+        // The bar floats over the content; each screen reserves room for it
+        // (`reservesTabBarSpace`) so its own bottom controls sit above it.
+        .overlay(alignment: .bottom) {
+            if !router.isTabBarHidden {
+                AppTabBar()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: router.isTabBarHidden)
+        .fullScreenCover(isPresented: $router.isScanPresented, onDismiss: {
+            router.openPending()
+            celebrateNewSite()
+        }) {
             ScanView()
         }
+        // Odyssey: celebrate a first photo at a site if the camera closed before it could.
+        .overlay {
+            if let celebrating {
+                SiteCapturedCelebration(
+                    story: celebrating,
+                    onContinue: { withAnimation(Motion.smooth) { self.celebrating = nil } },
+                    onOpenOdyssey: {
+                        self.celebrating = nil
+                        router.open(.odyssey)
+                    }
+                )
+                .transition(.opacity)
+            }
+        }
+        .onChange(of: photos.newlyCapturedSite) { celebrateNewSite() }
+    }
+
+    private func celebrateNewSite() {
+        guard !router.isScanPresented, celebrating == nil,
+              let id = photos.consumeNewlyCapturedSite(), let story = MockData.story(id) else { return }
+        withAnimation(Motion.smooth) { celebrating = story }
     }
 
     /// Intercepts the Scan tab so it opens the modal instead of switching.
@@ -38,10 +72,33 @@ struct RootView: View {
             content()
                 .appDestinations()
                 .collapsesTabBarOnScroll()
+                .reservesTabBarSpace()
                 .toolbar(.hidden, for: .tabBar)
         }
+        .modifier(TabEntrance(isActive: router.selectedTab == tab))
         .environment(\.zoomNamespace, zoom)
         .tag(tab)
+    }
+}
+
+private extension Route {
+    var isMap: Bool {
+        if case .map = self { return true }
+        return false
+    }
+}
+
+/// The incoming tab fades in and settles up into place while the bar's
+/// selection lens slides across (animated by `AppTabBar`'s switch).
+private struct TabEntrance: ViewModifier {
+    let isActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isActive ? 1 : 0)
+            .offset(y: isActive || reduceMotion ? 0 : 14)
+            .scaleEffect(isActive || reduceMotion ? 1 : 0.985, anchor: .bottom)
     }
 }
 
@@ -57,6 +114,8 @@ private struct AppDestinations: ViewModifier {
         content.navigationDestination(for: Route.self) { route in
             destination(for: route)
                 .collapsesTabBarOnScroll()
+                // The map hides the tab bar (it has a back button), so nothing to reserve.
+                .reservesTabBarSpace(!route.isMap)
                 .toolbar(.hidden, for: .tabBar)
         }
     }
@@ -74,6 +133,12 @@ private struct AppDestinations: ViewModifier {
             JourneyMapView(focus: focus, site: site)
         case .photos:
             PhotoGalleryView()
+        case .album(let id):
+            PlaceAlbumView(placeID: id)
+        case .search:
+            SearchView()
+        case .odyssey:
+            OdysseyView()
         }
     }
 }
@@ -81,4 +146,22 @@ private struct AppDestinations: ViewModifier {
 #Preview {
     RootView()
         .previewEnvironment()
+}
+
+/// Root with a screen already pushed, to check the tab bar against it.
+private struct PushedRootPreview: View {
+    let route: Route
+    @Environment(Router.self) private var router
+
+    var body: some View {
+        RootView().onAppear { router.open(route, in: .home) }
+    }
+}
+
+#Preview("Story open") {
+    PushedRootPreview(route: .story("parthenon")).previewEnvironment()
+}
+
+#Preview("Map open (no tab bar)") {
+    PushedRootPreview(route: .map(site: "parthenon")).previewEnvironment()
 }

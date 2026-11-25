@@ -37,6 +37,7 @@ struct JourneyMapView: View {
     @State private var selectedPlace: VisitedPlace.ID? = nil
     @State private var selectedSiteID: Story.ID? = nil
     @State private var satellite = false
+    @State private var storyAfterViewer: Story.ID?
 
     private var selectedSite: Story? { sites.first { $0.id == selectedSiteID } }
 
@@ -121,10 +122,16 @@ struct JourneyMapView: View {
                 .accessibilityLabel("All photos")
             }
         }
-        .fullScreenCover(item: $viewing) { item in
-            PhotoViewer(item: item, onOpenStory: { id in
-                viewing = nil
+        .fullScreenCover(item: $viewing, onDismiss: {
+            // Navigate only once the viewer has fully closed (see Router.openAfterDismiss).
+            if let id = storyAfterViewer {
+                storyAfterViewer = nil
                 openStory(id)
+            }
+        }) { item in
+            PhotoViewer(item: item, onOpenStory: { id in
+                storyAfterViewer = id
+                viewing = nil
             })
         }
         .task {
@@ -365,7 +372,7 @@ private struct PlaceChip: View {
         HStack(spacing: Spacing.sm) {
             SitePhotoImage(photo: place.cover)
                 .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.xs, style: .continuous))
+                .clipShape(Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(place.name)
                     .textStyle(.callout)
@@ -379,12 +386,10 @@ private struct PlaceChip: View {
             .padding(.trailing, Spacing.xs)
         }
         .padding(Spacing.xxs)
-        .frame(maxWidth: 220, alignment: .leading)
-        .background(Palette.background.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                .strokeBorder(isSelected ? Palette.ink : Palette.hairline, lineWidth: isSelected ? 1 : 0.75)
-        )
+        .padding(.trailing, Spacing.xs)
+        .frame(maxWidth: 230, alignment: .leading)
+        .glassSurface(in: Capsule())
+        .overlay(Capsule().strokeBorder(Palette.ink.opacity(isSelected ? 0.9 : 0), lineWidth: 1))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(place.name), \(place.photos.count) photos")
         .accessibilityHint("Shows this place on the map")
@@ -401,7 +406,7 @@ private struct NearbySiteChip: View {
         HStack(spacing: Spacing.sm) {
             ArtworkView(artwork: story.artwork)
                 .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.xs, style: .continuous))
+                .clipShape(Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(story.title)
                     .textStyle(.callout)
@@ -420,12 +425,9 @@ private struct NearbySiteChip: View {
             .padding(.trailing, Spacing.xs)
         }
         .padding(Spacing.xxs)
-        .frame(maxWidth: 220, alignment: .leading)
-        .background(Palette.background.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                .strokeBorder(Palette.hairline, lineWidth: 0.75)
-        )
+        .padding(.trailing, Spacing.xs)
+        .frame(maxWidth: 230, alignment: .leading)
+        .glassSurface(in: Capsule())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(story.title), \(distance.distanceLabel)\(photoCount > 0 ? ", \(photoCount) of your photos" : "")")
         .accessibilityHint("Shows this site on the map")

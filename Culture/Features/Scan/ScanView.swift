@@ -21,6 +21,16 @@ struct ScanView: View {
     @State private var viewing: PhotoViewerItem?
     @State private var pinchBase: CGFloat?
     @State private var shutterBlink = 0.0
+    /// Scan mode's lock-on ring (0…1) while a subject is held steady.
+    @State private var lockProgress: CGFloat = 0
+
+    /// After closing a result, don't instantly re-identify what's still in view.
+    @State private var resumeAutoScan = Date.distantPast
+    /// A site just captured for the first time (Odyssey).
+    @State private var celebrating: Story?
+
+    /// Seconds a subject must stay in view before it's identified.
+    private static let holdSteady = 1.2
 
     init(mode: CaptureMode = .scan) {
         let model = ScanViewModel()
@@ -58,9 +68,31 @@ struct ScanView: View {
             // Shutter blink in Photo mode.
             Color.white.opacity(shutterBlink).ignoresSafeArea().allowsHitTesting(false)
         }
+        .overlay {
+            if let celebrating {
+                SiteCapturedCelebration(
+                    story: celebrating,
+                    onContinue: { withAnimation(Motion.smooth) { self.celebrating = nil } },
+                    onOpenOdyssey: {
+                        self.celebrating = nil
+                        router.openAfterDismiss(.odyssey, in: .library)
+                        router.isScanPresented = false
+                    }
+                )
+                .transition(.opacity)
+            }
+        }
+        // Photo mode: celebrate a newly captured site straight away. (Scan mode
+        // waits for its result sheet to close — see `resultBinding`.)
+        .onChange(of: photos.newlyCapturedSite) {
+            guard model.mode == .photo else { return }
+            celebrateNewSite()
+        }
         .preferredColorScheme(.dark)
         .task { await camera.start() }
         .task { sites = (try? await services.stories.allStories()) ?? MockData.stories }
+        // Scan mode identifies on its own: no shutter to press.
+        .task(id: autoScanKey) { await autoScan() }
         .task(id: model.photoMessage) {
             guard model.photoMessage != nil else { return }
             try? await Task.sleep(for: .seconds(2.5))
@@ -105,8 +137,8 @@ struct ScanView: View {
         switch model.phase {
         case .aiming:
             if camera.status == .unauthorized { return "Camera access is off. Allow it in Settings to scan." }
-            if let object = camera.detections.first { return "\(object.displayLabel) in view. Tap to identify." }
-            return "Frame a statue, temple or relic."
+            if let object = camera.detections.first { return "\(object.displayLabel) found. Hold steady…" }
+            return "Point at a statue, temple or relic. It's identified automatically."
         case .recognizing:
             return "Reading the stone…"
         case .recognized:
@@ -126,7 +158,8 @@ struct ScanView: View {
                     .font(.system(size: 16, weight: .regular))
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: HitTarget.minimum, height: HitTarget.minimum)
-                    .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+                    .glassSurface(in: Circle())
+                    .contentShape(Circle())
             }
             .disabled(camera.capabilities.position == .front)
             .accessibilityLabel(model.isFlashOn ? "Turn flash off" : "Turn flash on")
@@ -138,7 +171,7 @@ struct ScanView: View {
                     .lineLimit(1)
                     .padding(.horizontal, Spacing.sm)
                     .frame(height: HitTarget.minimum)
-                    .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+                    .glassSurface(in: Capsule())
                     .transition(.opacity)
             }
 
@@ -169,7 +202,7 @@ struct ScanView: View {
     private var reticle: some View {
         switch model.mode {
         case .scan:
-            ViewfinderFrame(isScanning: model.phase == .recognizing)
+            ViewfinderFrame(isScanning: model.phase == .recognizing, lock: lockProgress)
                 .frame(width: 224, height: 280)
                 .offset(y: -90) // clear of the thumb rail
                 // Step back while live boxes are showing, so the two don't compete.
@@ -216,8 +249,14 @@ struct ScanView: View {
                 ForEach(camera.capabilities.zoomStops.reversed(), id: \.self) { stop in
                     zoomButton(stop)
                 }
-                shutter.padding(.top, Spacing.xs)
+                // Scan mode identifies automatically, so only Photo mode has a shutter.
+                if model.mode == .photo {
+                    shutter
+                        .padding(.top, Spacing.xs)
+                        .transition(.scale(scale: 0.6, anchor: .top).combined(with: .opacity))
+                }
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: model.mode)
             .padding(.top, Spacing.sm)
             .padding([.horizontal, .bottom], 5)
             .background(Color.black.opacity(0.4), in: Capsule())
@@ -349,6 +388,57 @@ struct ScanView: View {
         }
     }
 
+    private func celebrateNewSite() {
+        guard celebrating == nil, let id = photos.consumeNewlyCapturedSite(),
+              let story = sites.first(where: { $0.id == id }) ?? MockData.story(id) else { return }
+        withAnimation(Motion.smooth) { celebrating = story }
+    }
+
+    // MARK: Auto-scan
+
+    private struct AutoScanKey: Equatable {
+        let mode: CaptureMode
+        let phase: ScanViewModel.Phase
+        let subjectInView: Bool
+        let status: CameraController.Status
+    }
+
+    private var autoScanKey: AutoScanKey {
+        AutoScanKey(mode: model.mode, phase: model.phase,
+                    subjectInView: !camera.detections.isEmpty, status: camera.status)
+    }
+
+    /// Scan mode: once something identifiable has stayed in view for a moment,
+    /// identify it — the ring traces the frame meanwhile. After a miss it
+    /// waits, then looks again. Without a camera (Simulator) a subject is
+    /// "found" after a short pause so the flow can be tried.
+    private func autoScan() async {
+        lockProgress = 0
+        guard model.mode == .scan else { return }
+
+        switch model.phase {
+        case .failed:
+            try? await Task.sleep(for: .seconds(3.5))
+            guard !Task.isCancelled else { return }
+            model.reset()
+        case .aiming:
+            let simulated = camera.status == .unavailable
+            guard !camera.detections.isEmpty || simulated else { return }
+            let wait = resumeAutoScan.timeIntervalSinceNow
+            if wait > 0 {
+                try? await Task.sleep(for: .seconds(wait))
+                guard !Task.isCancelled else { return }
+            }
+            let hold = simulated ? 2.0 : Self.holdSteady
+            withAnimation(reduceMotion ? nil : .linear(duration: hold)) { lockProgress = 1 }
+            try? await Task.sleep(for: .seconds(hold))
+            guard !Task.isCancelled, model.phase == .aiming, model.mode == .scan else { return }
+            capture()
+        case .recognizing, .recognized:
+            return
+        }
+    }
+
     private func capture() {
         Task { await model.capture(using: services.scanner, camera: camera, photos: photos, location: location) }
     }
@@ -367,8 +457,9 @@ struct ScanView: View {
     /// Closes the camera and opens the user's map (on the Library tab), optionally on a photo.
     private func showOnMap(_ photo: SitePhoto?) {
         if case .recognized(let story) = model.phase { library.recordScan(of: story.id) }
+        // Pushed once the camera has fully closed (see Router.openAfterDismiss).
+        router.openAfterDismiss(.map(focus: photo?.id, site: photo?.storyID), in: .library)
         router.isScanPresented = false
-        router.open(.map(focus: photo?.id), in: .library)
     }
 
     private func openSettings() {
@@ -378,14 +469,20 @@ struct ScanView: View {
     private var resultBinding: Binding<Bool> {
         Binding(
             get: { if case .recognized = model.phase { true } else { false } },
-            set: { if !$0, case .recognized = model.phase { model.reset() } }
+            set: {
+                if !$0, case .recognized = model.phase {
+                    resumeAutoScan = .now.addingTimeInterval(4)
+                    model.reset()
+                    celebrateNewSite()
+                }
+            }
         )
     }
 
     private func open(_ story: Story) {
         library.recordScan(of: story.id)
+        router.openAfterDismiss(.story(story.id), in: .home)
         router.isScanPresented = false
-        router.open(.story(story.id), in: .home)
     }
 }
 
@@ -424,9 +521,12 @@ private struct ViewfinderBackground: View {
     }
 }
 
-/// Corner brackets with a sweeping scan line while recognising.
+/// Corner brackets with a lock-on ring while holding steady, and a sweeping
+/// scan line while recognising.
 private struct ViewfinderFrame: View {
     var isScanning: Bool
+    /// 0…1: how far the auto-scan lock-on has got.
+    var lock: CGFloat = 0
     @State private var sweep = false
     @State private var breathe = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -442,6 +542,13 @@ private struct ViewfinderFrame: View {
                         guard !reduceMotion else { return }
                         withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) { breathe = true }
                     }
+                // Traces round the frame as the subject is held steady.
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .trim(from: 0, to: lock)
+                    .stroke(Palette.ink, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .shadow(color: Palette.imageWarmth.opacity(0.6), radius: 6)
+                    .padding(-6)
+                    .opacity(lock > 0 && !isScanning ? 1 : 0)
                 if isScanning {
                     Rectangle()
                         .fill(Palette.ink.opacity(0.8))

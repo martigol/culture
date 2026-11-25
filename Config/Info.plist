@@ -13,6 +13,13 @@
 		<string>Zodiak-Italic.otf</string>
 	</array>
 
+	<!-- Launch screen: brand black, so it hands over seamlessly to SplashView. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
+
 	<!-- SECURITY: HTTPS only. Do not add exceptions without a security review. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

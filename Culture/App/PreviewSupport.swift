@@ -18,6 +18,8 @@ extension View {
             .environment(HighlightStore.preview)
             .environment(PhotoStore.preview)
             .environment(LocationProvider())
+            .environment(PermissionsCenter())
+            .environment(NearbySiteAlerts())
             .environment(\.services, .mock)
             .preferredColorScheme(.dark)
     }

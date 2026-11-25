@@ -23,6 +23,18 @@ final class PhotoStore {
     /// Newest first.
     private(set) var photos: [SitePhoto] = []
 
+    /// Set when a photo captures a site for the first time (Odyssey progress);
+    /// whoever shows the celebration clears it with `consumeNewlyCapturedSite()`.
+    private(set) var newlyCapturedSite: Story.ID?
+
+    func consumeNewlyCapturedSite() -> Story.ID? {
+        defer { newlyCapturedSite = nil }
+        return newlyCapturedSite
+    }
+
+    /// Story IDs of every site with at least one photo.
+    var capturedSiteIDs: Set<Story.ID> { Set(photos.compactMap(\.storyID)) }
+
     let directory: URL
     private var indexURL: URL { directory.appendingPathComponent("photos.json") }
 
@@ -80,8 +92,10 @@ final class PhotoStore {
             try? FileManager.default.removeItem(at: thumb)
             return nil
         }
+        let isFirstAtSite = photo.storyID.map { id in !photos.contains { $0.storyID == id } } ?? false
         photos.insert(photo, at: 0)
         persist()
+        if isFirstAtSite { newlyCapturedSite = photo.storyID }
         return photo
     }
 
