@@ -1,99 +1,45 @@
 import SwiftUI
 
-/// Your Library: who you are in the app (rank and counts), your Odyssey,
-/// picture tiles for everything you've kept, recent saves, collections, and
-/// the map and settings as glass rows.
+/// Your Library: your Odyssey, one picture tile per thing you've kept (each
+/// with its count), and the map and settings as glass rows. Its search only
+/// looks through what you've kept.
 struct LibraryView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(HighlightStore.self) private var highlights
     @Environment(PhotoStore.self) private var photos
     @Environment(PermissionsCenter.self) private var permissions
     @State private var showsPermissions = false
+    @State private var query = ""
 
     private let tileColumns = [GridItem(.flexible(), spacing: Spacing.md), GridItem(.flexible(), spacing: Spacing.md)]
 
+    private var trimmedQuery: String { InputSanitizer.clean(query, maxLength: 80) }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.xl) {
-                header
-                OdysseyCard().padding(.horizontal, Spacing.md)
-                tiles
-                recentlySaved
-                collections
-                settings
-                QuoteBlock(greek: "Μνήμη", english: "Memory is the mother of the Muses.", source: "Hesiod, Theogony")
+            if trimmedQuery.isEmpty {
+                VStack(alignment: .leading, spacing: Spacing.xl) {
+                    OdysseyCard().padding(.horizontal, Spacing.md)
+                    tiles
+                    settings
+                    QuoteBlock(greek: "Μνήμη", english: "Memory is the mother of the Muses.", source: "Hesiod, Theogony")
+                }
+                .padding(.top, Spacing.sm)
+                .padding(.bottom, Spacing.section)
+            } else {
+                LibrarySearchResults(query: trimmedQuery)
             }
-            .padding(.top, Spacing.xs)
-            .padding(.bottom, Spacing.section)
         }
         .scrollIndicators(.hidden)
+        .scrollDismissesKeyboard(.immediately)
         .screenBackground()
         .navigationTitle("Library")
+        .scopedSearch(text: $query, prompt: "Search Library")
         .sheet(isPresented: $showsPermissions) {
             PermissionsView { showsPermissions = false }
                 .presentationDragIndicator(.visible)
         }
         .task { await permissions.refresh() }
-    }
-
-    // MARK: Header
-
-    private var header: some View {
-        let odyssey = Odyssey(photos: photos.photos)
-
-        return VStack(alignment: .leading, spacing: Spacing.md) {
-            HStack {
-                Label(odyssey.rank.title.uppercased(), systemImage: odyssey.rank.symbol)
-                    .font(.caption2.weight(.bold))
-                    .tracking(1.2)
-                    .foregroundStyle(Palette.inkSecondary)
-                    .padding(.horizontal, Spacing.sm)
-                    .padding(.vertical, 5)
-                    .glassSurface(in: Capsule())
-                Spacer()
-                Text(odyssey.rank.motto)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.inkTertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            HStack(spacing: 0) {
-                stat("\(library.savedIDs.count)", "Saved", "bookmark.fill")
-                divider
-                stat("\(highlights.highlights.count)", "Highlights", "highlighter")
-                divider
-                stat("\(photos.photos.count)", "Photos", "camera.fill")
-                divider
-                stat("\(StorylineProgress.watched.count)", "Myths seen", "play.fill")
-            }
-        }
-        .padding(Spacing.md)
-        .glassCard(glow: library.savedIDs.first.flatMap(MockData.story)?.artwork)
-        .padding(.horizontal, Spacing.md)
-        .padding(.top, Spacing.sm)
-    }
-
-    private func stat(_ value: String, _ label: String, _ symbol: String) -> some View {
-        VStack(spacing: 3) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Palette.inkTertiary)
-            Text(value)
-                .font(.system(size: 22, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(Palette.ink)
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Palette.inkTertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var divider: some View {
-        Rectangle().fill(Palette.ink.opacity(0.12)).frame(width: 0.75, height: 40)
     }
 
     // MARK: Tiles
@@ -128,54 +74,6 @@ struct LibraryView: View {
         }
         .buttonStyle(.pressable)
         .padding(.horizontal, Spacing.md)
-    }
-
-    // MARK: Shelves
-
-    @ViewBuilder
-    private var recentlySaved: some View {
-        let saved = library.savedIDs.compactMap(MockData.story)
-        if !saved.isEmpty {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                SectionHeader(title: "Recently saved", actionTitle: nil)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: Spacing.md) {
-                        ForEach(saved) { story in
-                            StoryLink(story: story) { GlassPortraitCard(story: story, width: 150) }
-                                .carouselCard()
-                        }
-                    }
-                    .padding(.vertical, Spacing.lg)
-                }
-                .contentMargins(.horizontal, Spacing.screen, for: .scrollContent)
-                .scrollClipDisabled()
-                .padding(.vertical, -Spacing.lg)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var collections: some View {
-        if !library.collections.isEmpty {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                SectionHeader(title: "Collections", actionTitle: nil)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: Spacing.md) {
-                        ForEach(library.collections) { collection in
-                            NavigationLink(value: Route.collection(collection.id)) {
-                                CollectionMosaic(collection: collection)
-                            }
-                            .buttonStyle(.pressable)
-                            .carouselCard()
-                        }
-                    }
-                    .padding(.vertical, Spacing.lg)
-                }
-                .contentMargins(.horizontal, Spacing.screen, for: .scrollContent)
-                .scrollClipDisabled()
-                .padding(.vertical, -Spacing.lg)
-            }
-        }
     }
 
     // MARK: Settings
@@ -256,51 +154,89 @@ private struct LibraryTile: View {
     }
 }
 
-/// A collection's first four plates as a 2×2 mosaic on a glass card.
-private struct CollectionMosaic: View {
-    let collection: StoryCollection
+/// Library search: only what you've kept — saved and offline stories,
+/// highlights and notes, collections and places you've photographed.
+private struct LibrarySearchResults: View {
+    let query: String
+    @Environment(LibraryStore.self) private var library
+    @Environment(HighlightStore.self) private var highlights
+    @Environment(PhotoStore.self) private var photos
 
     var body: some View {
-        let plates = collection.storyIDs.prefix(4).compactMap(MockData.story).map(\.artwork)
+        let kept = Array(Set(library.savedIDs + library.offlineIDs)).sorted()
+        let stories = kept.compactMap(MockData.story).filter { $0.matches(query) }
+        let notes = highlights.highlights.filter {
+            $0.text.localizedStandardContains(query) || ($0.note ?? "").localizedStandardContains(query)
+        }
+        let collections = library.collections.filter { $0.name.localizedStandardContains(query) }
+        let places = photos.places.filter {
+            $0.name.localizedStandardContains(query) || $0.region.localizedStandardContains(query)
+        }
 
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Grid(horizontalSpacing: 3, verticalSpacing: 3) {
-                GridRow {
-                    cell(plates, 0)
-                    cell(plates, 1)
+        if stories.isEmpty && notes.isEmpty && collections.isEmpty && places.isEmpty {
+            EmptyStateView(symbol: "magnifyingglass", title: "No results",
+                           message: "Nothing in your Library matches “\(query)”. Try the Search tab to look everywhere.")
+                .padding(.top, Spacing.xl)
+        } else {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if !stories.isEmpty {
+                    header("Stories")
+                    ForEach(stories) { story in
+                        StoryLink(story: story) {
+                            StoryRow(story: story, isSaved: library.isSaved(story.id)) { library.toggleSaved(story.id) }
+                        }
+                        .modifier(RowChrome())
+                    }
                 }
-                GridRow {
-                    cell(plates, 2)
-                    cell(plates, 3)
+                if !notes.isEmpty {
+                    header("Highlights & Notes")
+                    ForEach(notes) { highlight in
+                        NavigationLink(value: Route.story(highlight.storyID)) { HighlightRow(highlight: highlight) }
+                            .buttonStyle(.pressable)
+                            .modifier(RowChrome())
+                    }
+                }
+                if !collections.isEmpty {
+                    header("Collections")
+                    ForEach(collections) { collection in
+                        NavigationLink(value: Route.collection(collection.id)) {
+                            Label(collection.name, systemImage: LibrarySection.collections.symbol)
+                                .textStyle(.headline)
+                                .foregroundStyle(Palette.ink)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.pressable)
+                        .modifier(RowChrome())
+                    }
+                }
+                if !places.isEmpty {
+                    header("Your Places")
+                    ForEach(places) { place in
+                        NavigationLink(value: Route.album(place.id)) {
+                            Label(place.name, systemImage: "photo.on.rectangle")
+                                .textStyle(.headline)
+                                .foregroundStyle(Palette.ink)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.pressable)
+                        .modifier(RowChrome())
+                    }
                 }
             }
-            .frame(width: 176, height: 176)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.cardInner - 6, style: .continuous))
-
-            Text(collection.name)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Palette.ink)
-                .lineLimit(1)
-                .padding(.horizontal, Spacing.xxs)
-            Text("\(collection.storyIDs.count) stories")
-                .font(.system(size: 12))
-                .foregroundStyle(Palette.inkTertiary)
-                .padding(.horizontal, Spacing.xxs)
-                .padding(.bottom, Spacing.xxs)
+            .padding(.bottom, Spacing.section)
         }
-        .frame(width: 176)
-        .padding(Spacing.xs)
-        .glassCard(cornerRadius: Radius.cardInner, glow: plates.first)
-        .accessibilityElement(children: .combine)
     }
 
-    @ViewBuilder
-    private func cell(_ plates: [Artwork], _ i: Int) -> some View {
-        if i < plates.count {
-            ArtworkView(artwork: plates[i], motion: false)
-        } else {
-            Palette.surface
-        }
+    private func header(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.caption.weight(.bold))
+            .tracking(1.4)
+            .foregroundStyle(Palette.inkTertiary)
+            .padding(.horizontal, Spacing.screen)
+            .padding(.top, Spacing.lg)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 

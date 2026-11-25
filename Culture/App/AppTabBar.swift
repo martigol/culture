@@ -9,11 +9,12 @@ import SwiftUI
 
 /// The app's bottom navigation, in Liquid Glass.
 ///
-/// At rest it's one bar with every tab, Scan in the middle in plain glass.
-/// Scrolling down splits it into three floating buttons — Home, Scan (now the
-/// biggest, tinted bone) and Library — and scrolling back up, reaching the
-/// top or switching tabs brings the full bar back. Before iOS 26 it falls
-/// back to a frosted material.
+/// At rest it's one bar with the tabs (Scan in plain glass) plus Search as a
+/// separate glass circle at the trailing end, like the system tab bar.
+/// Scrolling down splits it into three floating buttons — the current tab,
+/// Scan (now the biggest, tinted bone) and Search — and scrolling back up,
+/// reaching the top or switching tabs brings the full bar back. Before
+/// iOS 26 it falls back to a frosted material.
 struct AppTabBar: View {
     @Environment(Router.self) private var router
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -42,34 +43,38 @@ struct AppTabBar: View {
 
     // MARK: Layouts
 
-    /// One glass bar: every tab, Scan in the middle as part of the bar.
+    /// One glass bar with the tabs, then Search on its own at the trailing end.
     private var expanded: some View {
-        HStack(spacing: 0) {
-            ForEach(AppTab.allCases, id: \.self) { tab in
-                if tab == .scan {
-                    scanBarItem
-                        .frame(maxWidth: .infinity)
-                        .frame(height: barHeight)
-                        .modifier(GlassStyle(shape: Capsule(), id: tab, union: "bar", namespace: glass))
-                } else {
-                    barItem(tab)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: barHeight)
-                        .modifier(GlassStyle(shape: Capsule(), id: tab, union: "bar", namespace: glass))
+        HStack(spacing: Spacing.xs) {
+            HStack(spacing: 0) {
+                ForEach(AppTab.barTabs, id: \.self) { tab in
+                    if tab == .scan {
+                        scanBarItem
+                            .frame(maxWidth: .infinity)
+                            .frame(height: barHeight)
+                            .modifier(GlassStyle(shape: Capsule(), id: tab, union: "bar", namespace: glass))
+                    } else {
+                        barItem(tab)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: barHeight)
+                            .modifier(GlassStyle(shape: Capsule(), id: tab, union: "bar", namespace: glass))
+                    }
                 }
             }
+            .modifier(LegacyBarBackground())
+
+            circleItem(.search, size: barHeight)
         }
-        .modifier(LegacyBarBackground())
     }
 
-    /// Three floating circles: Home · Scan · Library.
+    /// Three floating circles: current tab · Scan · Search.
     private var collapsed: some View {
         HStack(spacing: 0) {
-            circleItem(.home)
+            circleItem(router.selectedTab == .search ? .home : router.selectedTab)
             Spacer(minLength: 0)
             scanButton
             Spacer(minLength: 0)
-            circleItem(.library)
+            circleItem(.search)
         }
     }
 
@@ -101,16 +106,17 @@ struct AppTabBar: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private func circleItem(_ tab: AppTab) -> some View {
+    private func circleItem(_ tab: AppTab, size: CGFloat? = nil) -> some View {
         let isSelected = router.selectedTab == tab
+        let side = size ?? circleSize
         return Button { select(tab) } label: {
             Image(systemName: tab.symbol)
-                .symbolVariant(isSelected ? .fill : .none)
-                .font(.system(size: 21, weight: .regular))
+                .symbolVariant(isSelected && tab != .search ? .fill : .none)
+                .font(.system(size: 21, weight: isSelected && tab == .search ? .semibold : .regular))
                 .contentTransition(.symbolEffect(.replace))
                 .symbolEffect(.bounce.up, value: bounces[tab] ?? 0)
                 .foregroundStyle(isSelected ? Palette.ink : Palette.inkSecondary)
-                .frame(width: circleSize, height: circleSize)
+                .frame(width: side, height: side)
                 .background { selectionLens(isSelected, shape: Circle(), inset: 4) }
                 .contentShape(Circle())
         }

@@ -3,6 +3,7 @@ import SwiftUI
 /// Root tabs with the custom Liquid Glass bar (`AppTabBar`) in place of the
 /// system tab bar. "Scan" sits in the bar for discoverability, but opens the
 /// full-screen camera instead of switching tabs (camera is a modal task, HIG).
+/// Search is the last tab and searches everything.
 struct RootView: View {
     @Environment(Router.self) private var router
     @Environment(PhotoStore.self) private var photos
@@ -15,9 +16,10 @@ struct RootView: View {
 
         TabView(selection: tabSelection) {
             tab(.home) { HomeView() }
-            tab(.gallery) { PhotoGalleryView() }
             tab(.stories) { StoriesView() }
             tab(.library) { LibraryView() }
+            // Global search across the whole app; each tab also has its own scoped search.
+            tab(.search) { SearchView() }
         }
         // The bar floats over the content; each screen reserves room for it
         // (`reservesTabBarSpace`) so its own bottom controls sit above it.
@@ -135,8 +137,6 @@ private struct AppDestinations: ViewModifier {
             PhotoGalleryView()
         case .album(let id):
             PlaceAlbumView(placeID: id)
-        case .search:
-            SearchView()
         case .odyssey:
             OdysseyView()
         }

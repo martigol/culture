@@ -92,7 +92,7 @@ struct CultureApp: App {
     private func applyDebugLaunchRoute() {
         let d = UserDefaults.standard
         switch d.string(forKey: "debugTab") {
-        case "gallery": router.selectedTab = .gallery
+        case "search": router.selectedTab = .search
         case "stories": router.selectedTab = .stories
         case "library": router.selectedTab = .library
         default: break
