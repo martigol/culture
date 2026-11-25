@@ -7,13 +7,14 @@
 
 import SwiftUI
 
-/// Search across every story (title, subtitle, place, era, theme and text)
-/// and the places you've photographed. Theme pills narrow it down; with no
-/// query it suggests a few stories to start from.
+/// The Search tab: global search across every story (title, subtitle, place,
+/// era, theme and text), the places you've photographed and your highlights
+/// and notes. Theme pills narrow the stories; with no query it suggests a few
+/// stories to start from. Each other tab has its own search for just its content.
 struct SearchView: View {
     @Environment(\.services) private var services
     @Environment(PhotoStore.self) private var photos
-    @Environment(Router.self) private var router
+    @Environment(HighlightStore.self) private var highlights
 
     @State private var query = ""
     @State private var theme: StoryCategory?
@@ -24,14 +25,21 @@ struct SearchView: View {
 
     private var storyResults: [Story] {
         stories.filter { story in
-            (theme == nil || story.category == theme) && (trimmed.isEmpty || Self.matches(story, trimmed))
+            (theme == nil || story.category == theme) && (trimmed.isEmpty || story.matches(trimmed))
         }
     }
 
     private var placeResults: [VisitedPlace] {
-        guard !trimmed.isEmpty else { return [] }
+        guard !trimmed.isEmpty, theme == nil else { return [] }
         return photos.places.filter {
             $0.name.localizedStandardContains(trimmed) || $0.region.localizedStandardContains(trimmed)
+        }
+    }
+
+    private var highlightResults: [Highlight] {
+        guard !trimmed.isEmpty, theme == nil else { return [] }
+        return highlights.highlights.filter {
+            $0.text.localizedStandardContains(trimmed) || ($0.note ?? "").localizedStandardContains(trimmed)
         }
     }
 
@@ -41,7 +49,7 @@ struct SearchView: View {
                 themePills
 
                 if !placeResults.isEmpty {
-                    section(trimmed.isEmpty ? "" : "Your places") {
+                    section("Your places") {
                         ForEach(placeResults) { place in
                             NavigationLink(value: Route.album(place.id)) { PlaceResultRow(place: place) }
                                 .buttonStyle(.pressable)
@@ -49,12 +57,25 @@ struct SearchView: View {
                     }
                 }
 
+                if !highlightResults.isEmpty {
+                    section("Highlights & notes") {
+                        ForEach(highlightResults) { highlight in
+                            NavigationLink(value: Route.story(highlight.storyID)) {
+                                HighlightRow(highlight: highlight)
+                                    .padding(Spacing.sm)
+                                    .glassCard(cornerRadius: Radius.cardInner)
+                            }
+                            .buttonStyle(.pressable)
+                        }
+                    }
+                }
+
                 let results = storyResults
-                if results.isEmpty {
+                if results.isEmpty && placeResults.isEmpty && highlightResults.isEmpty {
                     EmptyStateView(symbol: "magnifyingglass", title: "Nothing found",
                                    message: "Try a place, a god, a hero or an era — like “Athens”, “Zeus” or “BC”.")
                         .padding(.top, Spacing.xl)
-                } else {
+                } else if !results.isEmpty {
                     section(trimmed.isEmpty && theme == nil ? "Start with" : "Stories · \(results.count)") {
                         ForEach(trimmed.isEmpty && theme == nil ? Array(results.prefix(6)) : results) { story in
                             StoryLink(story: story) { StoryResultRow(story: story, query: trimmed) }
@@ -72,9 +93,8 @@ struct SearchView: View {
         .scrollDismissesKeyboard(.immediately)
         .screenBackground()
         .navigationTitle("Search")
-        .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: "Sites, myths, gods, eras…")
+                    prompt: "Stories, places, notes…")
         .modifier(FocusSearchOnAppear(isFocused: $isFocused))
         .task { stories = (try? await services.stories.allStories()) ?? MockData.stories }
     }
@@ -123,8 +143,12 @@ struct SearchView: View {
         }
     }
 
-    static func matches(_ story: Story, _ query: String) -> Bool {
-        [story.title, story.subtitle, story.region, story.era, story.category.title, story.summary, story.body]
+}
+
+extension Story {
+    /// Whether the query appears anywhere in the story: title, place, era, theme or text.
+    func matches(_ query: String) -> Bool {
+        [title, subtitle, region, era, category.title, summary, body]
             .contains { $0.localizedStandardContains(query) }
     }
 }

@@ -37,7 +37,7 @@ struct StoriesView: View {
         .scrollIndicators(.hidden)
         .screenBackground()
         .navigationTitle("Stories")
-        .searchable(text: $query, prompt: "Search myths, places, artifacts")
+        .scopedSearch(text: $query, prompt: "Search Stories")
         .fullScreenCover(item: $storyline, onDismiss: router.openPending) { story in
             StorylinePlayer(story: story) { shown in router.openAfterDismiss(.story(shown.id)) }
         }
@@ -183,8 +183,7 @@ struct StoriesView: View {
                 if case .category(let c) = filter { return story.category == c }
                 return true
             }()
-            let matchesQuery = q.isEmpty
-                || [story.title, story.region, story.subtitle, story.era].contains { $0.localizedStandardContains(q) }
+            let matchesQuery = q.isEmpty || story.matches(q)
             return matchesFilter && matchesQuery
         }
     }

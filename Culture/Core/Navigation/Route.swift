@@ -2,25 +2,28 @@ import SwiftUI
 import Observation
 
 enum AppTab: Hashable, CaseIterable {
-    case home, gallery, scan, stories, library
+    case home, stories, scan, library, search
+
+    /// The tabs inside the main bar. Search sits apart, at its trailing end (HIG).
+    static let barTabs: [AppTab] = [.home, .stories, .scan, .library]
 
     var title: String {
         switch self {
         case .home: "Home"
-        case .gallery: "Gallery"
-        case .scan: "Scan"
         case .stories: "Stories"
+        case .scan: "Scan"
         case .library: "Library"
+        case .search: "Search"
         }
     }
 
     var symbol: String {
         switch self {
         case .home: "house"
-        case .gallery: "photo.on.rectangle.angled"
-        case .scan: "viewfinder"
         case .stories: "text.book.closed"
+        case .scan: "viewfinder"
         case .library: "books.vertical"
+        case .search: "magnifyingglass"
         }
     }
 }
@@ -37,8 +40,6 @@ enum Route: Hashable {
     case photos
     /// One place's photos (a `VisitedPlace.ID`).
     case album(String)
-    /// Search across stories and your photographed places.
-    case search
     /// The game: every site to photograph, filled or still locked.
     case odyssey
 }
@@ -79,7 +80,7 @@ final class Router {
     var isScanPresented = false
     var paths: [AppTab: [Route]] = [:]
 
-    /// The tab bar shrinks to Home · Scan · Library while scrolling down.
+    /// The tab bar shrinks to current tab · Scan · Search while scrolling down.
     private(set) var isTabBarCollapsed = false
 
     /// Full-screen destinations with their own back button (the map) hide the tab bar.

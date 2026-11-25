@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Home, Instagram style: story rings that open each storyline, the brand
-/// hero, then a feed of glowing glass post cards with horizontal carousels
-/// slotted in between.
+/// hero, then a feed of glowing glass post cards. Browsing by theme lives in
+/// Stories and your progress in Library, so Home doesn't repeat them.
 struct HomeView: View {
     @Environment(Router.self) private var router
     @Environment(\.services) private var services
@@ -10,6 +10,10 @@ struct HomeView: View {
     @State private var storyline: Story?
     /// Rings already watched (remembered across launches).
     @State private var watchedStorylines = StorylineProgress.watched
+    /// Searches only the Home feed (the Search tab searches everything).
+    @State private var query = ""
+
+    private var trimmedQuery: String { InputSanitizer.clean(query, maxLength: 80) }
 
     var body: some View {
         ScrollView {
@@ -19,25 +23,21 @@ struct HomeView: View {
             case .failed(let message):
                 EmptyStateView(symbol: "wifi.exclamationmark", title: "Couldn't load", message: message)
             case .loaded(let all):
-                content(all)
+                if trimmedQuery.isEmpty {
+                    content(all)
+                } else {
+                    results(all.filter { $0.matches(trimmedQuery) })
+                }
             }
         }
         .scrollIndicators(.hidden)
         .screenBackground()
+        .navigationTitle("Home")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { router.open(.map(focus: nil)) } label: { Image(systemName: "map").fontWeight(.light) }
-                    .accessibilityLabel("Your map")
-            }
             ToolbarItem(placement: .principal) { BrandHeader() }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { router.open(.search) } label: {
-                    Image(systemName: "magnifyingglass").fontWeight(.light)
-                }
-                .accessibilityLabel("Search")
-            }
         }
+        .scopedSearch(text: $query, prompt: "Search Home")
         .toolbarBackground(Palette.background, for: .navigationBar)
         .fullScreenCover(item: $storyline, onDismiss: {
             watchedStorylines = StorylineProgress.watched
@@ -56,35 +56,38 @@ struct HomeView: View {
         let featured = all.first { $0.isRecommended } ?? all[0]
         // Story of the day first, then the rest.
         let feed = [featured] + all.filter { $0.id != featured.id }
-        let legends = all.filter { [.myths, .gods, .artifacts].contains($0.category) }
-        let places = all.filter { [.places, .history].contains($0.category) }
 
         LazyVStack(alignment: .leading, spacing: Spacing.xl) {
             StoryRingsRow(stories: feed, watched: watchedStorylines) { openStoryline($0) }
                 .padding(.top, Spacing.xs)
 
-            hero(feed)
-
-            // The game: photograph every site.
-            OdysseyCard()
-                .padding(.horizontal, Spacing.sm)
+            // The story of the day is the first post, so the hero shows the rest.
+            hero(Array(feed.dropFirst()))
 
             ForEach(Array(feed.enumerated()), id: \.element.id) { index, story in
                 post(story, badge: index == 0 ? "Story of the day" : nil)
-
-                // Horizontal slides between posts.
-                if index == 1, !legends.isEmpty {
-                    carousel(title: "Myths & Legends", stories: legends) { GlassPortraitCard(story: $0) }
-                }
-                if index == 4, !places.isEmpty {
-                    carousel(title: "Sacred Places", stories: places) { GlassPortraitCard(story: $0, width: 220) }
-                }
             }
 
             QuoteBlock(greek: "Γνῶθι σεαυτόν", english: "Know thyself.", source: "Temple of Apollo, Delphi")
                 .padding(.top, Spacing.lg)
         }
         .padding(.bottom, Spacing.section)
+    }
+
+    /// The feed narrowed to what matches the Home search.
+    @ViewBuilder
+    private func results(_ matches: [Story]) -> some View {
+        if matches.isEmpty {
+            EmptyStateView(symbol: "magnifyingglass", title: "No results",
+                           message: "Nothing on Home matches “\(trimmedQuery)”. Try the Search tab to look everywhere.")
+                .padding(.top, Spacing.xl)
+        } else {
+            LazyVStack(alignment: .leading, spacing: Spacing.xl) {
+                ForEach(matches) { post($0, badge: nil) }
+            }
+            .padding(.top, Spacing.sm)
+            .padding(.bottom, Spacing.section)
+        }
     }
 
     private func post(_ story: Story, badge: String?) -> some View {
@@ -123,27 +126,6 @@ struct HomeView: View {
                     .reveal(order: 2)
             }
             .padding(.horizontal, Spacing.screen)
-        }
-    }
-
-    private func carousel<Card: View>(title: String, stories: [Story],
-                                      @ViewBuilder card: @escaping (Story) -> Card) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            SectionHeader(title: title) { router.selectedTab = .stories }
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: Spacing.md) {
-                    ForEach(stories) { story in
-                        StoryLink(story: story) { card(story) }
-                            .carouselCard()
-                    }
-                }
-                .scrollTargetLayout()
-                .padding(.vertical, Spacing.lg) // room for the cards' glow
-            }
-            .contentMargins(.horizontal, Spacing.screen, for: .scrollContent)
-            .scrollTargetBehavior(.viewAligned)
-            .scrollClipDisabled()
-            .padding(.vertical, -Spacing.lg)
         }
     }
 
