@@ -250,12 +250,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Culture/Preview Content\"";
-				DEVELOPMENT_TEAM = ASM92244P4;
+				DEVELOPMENT_TEAM = P5RKH4XQ8F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Culture;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Culture uses the camera to recognise monuments, artifacts and exhibits so it can tell you their story.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Culture uses your location to surface heritage sites and stories near you.";
+				INFOPLIST_KEY_CFBundleDisplayName = CLIO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "CLIO uses the camera to recognise monuments, artifacts and exhibits so it can tell you their story.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "CLIO uses your location to surface heritage sites and stories near you.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
@@ -266,6 +266,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.culturess.heritage;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -282,12 +283,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Culture/Preview Content\"";
-				DEVELOPMENT_TEAM = ASM92244P4;
+				DEVELOPMENT_TEAM = P5RKH4XQ8F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Culture;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Culture uses the camera to recognise monuments, artifacts and exhibits so it can tell you their story.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Culture uses your location to surface heritage sites and stories near you.";
+				INFOPLIST_KEY_CFBundleDisplayName = CLIO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "CLIO uses the camera to recognise monuments, artifacts and exhibits so it can tell you their story.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "CLIO uses your location to surface heritage sites and stories near you.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
@@ -298,6 +299,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.culturess.heritage;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

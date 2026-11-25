@@ -1,135 +1,122 @@
-//
-//  SplashView.swift
-//  Culture
-//
-//  Created by Mario Martinelli on 25/11/2026.
-//
-
 import SwiftUI
 
-/// Launch animation in the style of Twitter / X: the mark sits on black,
-/// dips back for a beat, then rushes forward — and the app is revealed
-/// through it as it grows past the screen edges.
-///
-/// The mark is a medallion of Apollo with his sun-disc halo (from "The Old
-/// Gods"). The system launch screen is the same black (LaunchBackground), so
-/// the hand-over is seamless. Under Reduce Motion it simply fades.
+/// The Apollo logo and wordmark pull back, then expand together to reveal the app.
 struct SplashView: View {
-    /// `false` holds the mark on screen (previews / design review).
     var animates = true
     var onFinished: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var appeared = false
-    @State private var scale: CGFloat = 0.9
-    @State private var isRevealing = false
+    @State private var scale: CGFloat = 1
+    @State private var inkOpacity = 1.0
     @State private var curtainOpacity = 1.0
-    @State private var glow = false
-
-    private let size: CGFloat = 136
+    @State private var reveal = false
 
     var body: some View {
-        GeometryReader { geo in
-            // Big enough that the circle's edge clears every corner.
-            let fullScale = hypot(geo.size.width, geo.size.height) / size * 1.1
-
+        GeometryReader { geometry in
             ZStack {
-                curtain
+                Palette.background
+                    .mask {
+                        Rectangle()
+                            .overlay {
+                                brand(isMask: true)
+                                    .foregroundStyle(.black)
+                                    .scaleEffect(scale)
+                                    .opacity(reveal ? 1 : 0)
+                                    .blendMode(.destinationOut)
+                            }
+                            .compositingGroup()
+                    }
                     .opacity(curtainOpacity)
 
-                VStack(spacing: Spacing.xl) {
-                    medallion
-                        .scaleEffect(scale)
-                        .opacity(isRevealing ? 0 : (appeared ? 1 : 0))
-                    Text("CULTURE")
-                        .font(.system(size: 13, weight: .semibold))
-                        .tracking(9)
-                        .foregroundStyle(Palette.inkSecondary)
-                        .opacity(appeared && scale >= 1 && !isRevealing ? 1 : 0)
-                }
-                .offset(y: Spacing.xl / 2 + 8) // keep the medallion itself dead centre
+                brand(isMask: false)
+                    .foregroundStyle(Palette.ink)
+                    .scaleEffect(scale)
+                    .opacity(inkOpacity)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .task { await play(fullScale: fullScale) }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+            .task {
+                await play(fullScale: max(geometry.size.width, geometry.size.height) / 136 * 2)
+            }
         }
         .ignoresSafeArea()
-        .allowsHitTesting(!isRevealing)
-        .accessibilityElement()
-        .accessibilityLabel("Culture")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Clio")
     }
 
-    /// Black, with a circular window that opens up as the medallion grows.
-    private var curtain: some View {
-        Palette.background
-            .mask {
-                Rectangle()
-                    .overlay {
-                        Circle()
-                            .frame(width: size, height: size)
-                            .scaleEffect(scale)
-                            .opacity(isRevealing ? 1 : 0)
-                            .blendMode(.destinationOut)
-                    }
-                    .compositingGroup()
+    /// Matching layouts keep the logo and lettering aligned with their reveal.
+    private func brand(isMask: Bool) -> some View {
+        VStack(spacing: 28) {
+            ZStack {
+                if isMask {
+                    Circle().fill(.black)
+                } else {
+                    Image(GodPlate.apolloSun.rawValue)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 136 * 1.55, height: 136 * 1.94)
+                        .offset(y: 136 * 0.36)
+                        .frame(width: 136, height: 136)
+                        .clipShape(Circle())
+                        .overlay {
+                            Circle().strokeBorder(Palette.ink.opacity(0.65), lineWidth: 1.5)
+                        }
+                }
             }
+            .frame(width: 136, height: 136)
+
+            wordmark
+        }
+        .fixedSize()
     }
 
-    private var medallion: some View {
-        Image(GodPlate.apolloSun.rawValue)
-            .resizable()
-            .scaledToFill()
-            // Frame Apollo's face and the sun disc behind it.
-            .frame(width: size * 1.55, height: size * 1.94)
-            .offset(y: size * 0.36)
-            .frame(width: size, height: size)
-            .clipShape(Circle())
-            .overlay(
-                Circle().strokeBorder(
-                    LinearGradient(colors: [Palette.ink.opacity(0.9), Palette.ink.opacity(0.15)],
-                                   startPoint: .top, endPoint: .bottom),
-                    lineWidth: 1.5
-                )
-            )
-            .background {
-                // Soft sun-glow behind the mark, breathing while it waits.
-                Circle()
-                    .fill(Palette.imageWarmth.opacity(glow ? 0.38 : 0.18))
-                    .blur(radius: 34)
-                    .scaleEffect(glow ? 1.6 : 1.3)
-            }
-            .shadow(color: .black.opacity(0.6), radius: 20, y: 8)
+    /// The same geometry drives both the visible lettering and its cutout.
+    private var wordmark: some View {
+        Text("CLIO")
+            .font(.custom("Zodiak-Regular", size: 38, relativeTo: .largeTitle))
+            .tracking(10)
+            .fixedSize()
     }
 
     private func play(fullScale: CGFloat) async {
-        guard animates else {
-            appeared = true
-            scale = 1
+        guard animates else { return }
+
+        do {
+            try await Task.sleep(for: .milliseconds(900))
+            if reduceMotion {
+                withAnimation(.easeOut(duration: 0.3), completionCriteria: .removed) {
+                    inkOpacity = 0
+                    curtainOpacity = 0
+                } completion: {
+                    onFinished()
+                }
+                return
+            }
+
+            withAnimation(.easeOut(duration: 0.3)) { scale = 0.86 }
+            try await Task.sleep(for: .milliseconds(300))
+            try Task.checkCancellation()
+
+            // Keep the lettering visible as the zoom begins; dissolve its ink
+            // to expose the app through the identical, expanding letter mask.
+            reveal = true
+            withAnimation(.easeOut(duration: 1.25), completionCriteria: .removed) {
+                scale = fullScale
+            } completion: {
+                onFinished()
+            }
+            withAnimation(.easeOut(duration: 0.65).delay(0.12)) {
+                inkOpacity = 0
+            }
+            // Letter counters and spaces never form a solid aperture. Fade
+            // the remaining curtain after the initial zoom to finish cleanly.
+            withAnimation(.easeOut(duration: 0.55).delay(0.6)) {
+                curtainOpacity = 0
+            }
+        } catch {
+            // Cancellation means the splash has left the view hierarchy.
             return
         }
-        if reduceMotion {
-            appeared = true
-            scale = 1
-            try? await Task.sleep(for: .milliseconds(700))
-            withAnimation(.easeOut(duration: 0.35)) { curtainOpacity = 0; isRevealing = true }
-            try? await Task.sleep(for: .milliseconds(380))
-            onFinished()
-            return
-        }
-
-        // 1. The mark arrives.
-        withAnimation(.easeOut(duration: 0.4)) { appeared = true; scale = 1 }
-        withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { glow = true }
-        try? await Task.sleep(for: .milliseconds(750))
-
-        // 2. A short dip back — the anticipation beat.
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.7)) { scale = 0.84 }
-        try? await Task.sleep(for: .milliseconds(260))
-
-        // 3. Rush forward; the app shows through the opening circle.
-        isRevealing = true
-        withAnimation(.timingCurve(0.7, 0, 0.84, 0, duration: 0.55)) { scale = fullScale }
-        try? await Task.sleep(for: .milliseconds(560))
-        onFinished()
     }
 }
 

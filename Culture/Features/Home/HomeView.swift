@@ -34,9 +34,6 @@ struct HomeView: View {
         .screenBackground()
         .navigationTitle("Home")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) { BrandHeader() }
-        }
         .scopedSearch(text: $query, prompt: "Search Home")
         .toolbarBackground(Palette.background, for: .navigationBar)
         .fullScreenCover(item: $storyline, onDismiss: {

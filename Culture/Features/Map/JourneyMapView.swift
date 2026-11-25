@@ -37,6 +37,7 @@ struct JourneyMapView: View {
     @State private var selectedPlace: VisitedPlace.ID? = nil
     @State private var selectedSiteID: Story.ID? = nil
     @State private var satellite = false
+    @State private var showsOverview = false
     @State private var storyAfterViewer: Story.ID?
 
     private var selectedSite: Story? { sites.first { $0.id == selectedSiteID } }
@@ -100,9 +101,13 @@ struct JourneyMapView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Group {
-                if let selectedSite { siteCard(selectedSite) } else { bottomPanel }
+                if let selectedSite {
+                    siteCard(selectedSite)
+                } else if !showsOverview {
+                    bottomPanel
+                }
             }
-            .animation(Motion.snappy, value: selectedSiteID)
+            .animation(reduceMotion ? nil : Motion.snappy, value: selectedSiteID)
         }
         .sensoryFeedback(.selection, trigger: selectedSiteID)
         .navigationTitle(selectedSite?.title ?? "Your Map")
@@ -164,7 +169,7 @@ struct JourneyMapView: View {
                     }
                 }
                 Spacer(minLength: 0)
-                Button { selectedSiteID = nil } label: {
+                Button(action: showOverview) {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .light))
                         .foregroundStyle(Palette.ink)
@@ -279,6 +284,8 @@ struct JourneyMapView: View {
                         }
                     }
                 }
+                // Keep this inset from taking the map's available height.
+                .fixedSize(horizontal: false, vertical: true)
                 .contentMargins(.horizontal, Spacing.screen, for: .scrollContent)
             }
             .padding(.vertical, Spacing.md)
@@ -334,12 +341,28 @@ struct JourneyMapView: View {
         position = .region(region)
     }
 
+    /// Closing a site returns to the unobstructed map and fits every marker.
+    private func showOverview() {
+        selectedPlace = nil
+        withAnimation(reduceMotion ? nil : Motion.snappy) {
+            selectedSiteID = nil
+            showsOverview = true
+        }
+        let points = sites.map(\.location) + store.photos.map(\.location)
+        if let region = MKCoordinateRegion.fitting(points, padding: 1.4, minimumSpan: 0.05) {
+            move(to: region)
+        } else {
+            position = .automatic
+        }
+    }
+
     private func move(to region: MKCoordinateRegion) {
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.8)) { position = .region(region) }
     }
 
     /// Selects a site and centres on it, keeping roughly the current zoom.
     private func select(_ story: Story) {
+        showsOverview = false
         selectedPlace = nil
         withAnimation(Motion.snappy) { selectedSiteID = story.id }
         let delta = min(max(span.latitudeDelta, 0.02), 1.5)
