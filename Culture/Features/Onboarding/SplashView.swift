@@ -28,19 +28,22 @@ struct SplashView: View {
                     }
                     .opacity(curtainOpacity)
 
-                brand(isMask: false)
-                    .foregroundStyle(Palette.ink)
-                    .scaleEffect(scale)
-                    .opacity(inkOpacity)
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-            .clipped()
-            .task {
-                await play(fullScale: max(geometry.size.width, geometry.size.height) / 136 * 2)
+                VStack(spacing: Spacing.xl) {
+                    medallion
+                        .scaleEffect(scale)
+                        .opacity(isRevealing ? 0 : (appeared ? 1 : 0))
+                    Text("CLIO")
+                        .font(.system(size: 13, weight: .semibold))
+                        .tracking(9)
+                        .foregroundStyle(Palette.inkSecondary)
+                        .opacity(appeared && scale >= 1 && !isRevealing ? 1 : 0)
+                }
+                .offset(y: Spacing.xl / 2 + 8) // keep the medallion itself dead centre
             }
         }
         .ignoresSafeArea()
-        .accessibilityElement(children: .ignore)
+        .allowsHitTesting(!isRevealing)
+        .accessibilityElement()
         .accessibilityLabel("Clio")
     }
 
